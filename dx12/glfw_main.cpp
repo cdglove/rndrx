@@ -28,6 +28,34 @@
 #include "imgui_impl_dx12.h"
 #include "imgui_impl_glfw.h"
 
+enum class LogLevel {
+  None,
+  Error,
+  Warn,
+  Trace,
+  NumLogLevels,
+};
+
+struct LogState {
+  LogState(std::ostream& os, LogLevel lvl)
+      : os_(os)
+      , level_(lvl) {
+  }
+  ~LogState() {
+    os_ << std::endl;
+  }
+
+  LogLevel level_;
+  std::ostream& os_;
+};
+
+const LogLevel g_LogLevel = LogLevel::None;
+#define LOG(level)                                                             \
+  for(LogState log_state(std::cerr, LogLevel::level);                          \
+      g_LogLevel >= log_state.level_;                                          \
+      log_state.level_ = LogLevel::NumLogLevels)                               \
+  std::cerr
+
 #if ENABLE_DX12_DEBUG_LAYER
 #  include <dxgidebug.h>
 #endif
@@ -86,7 +114,10 @@ class Device {
   ~Device() {
   }
 
-  ID3D12Device* get() const {
+  Device(Device const&) = delete;
+  Device& operator=(Device const&) = delete;
+
+  ID3D12Device4* get() const {
     return device_;
   }
 
@@ -113,7 +144,7 @@ class Device {
     throw_error(device_->CreateCommandQueue(&desc, IID_PPV_ARGS(&graphics_queue_)));
   }
 
-  CComPtr<ID3D12Device> device_;
+  CComPtr<ID3D12Device4> device_;
   CComPtr<ID3D12CommandQueue> graphics_queue_;
 };
 
@@ -135,18 +166,9 @@ class RenderContext {
     return image_;
   }
 
-  void present_fence_value(UINT64 value) {
-    present_fence_value_ = value;
-  }
-
-  UINT64 present_fence_value() const {
-    return present_fence_value_;
-  }
-
  private:
   D3D12_CPU_DESCRIPTOR_HANDLE image_view_ = {};
   ID3D12Resource* image_ = nullptr;
-  UINT64 present_fence_value_ = 0;
 };
 
 class SubmissionContext {
@@ -162,9 +184,18 @@ class SubmissionContext {
     return command_allocator_;
   }
 
+  void present_fence_value(UINT64 value) {
+    present_fence_value_ = value;
+  }
+
+  UINT64 present_fence_value() const {
+    return present_fence_value_;
+  }
+
  private:
   Device& device_;
   CComPtr<ID3D12CommandAllocator> command_allocator_;
+  UINT64 present_fence_value_ = 0;
 };
 
 class Swapchain {
@@ -183,14 +214,20 @@ class Swapchain {
     if(present_fence_event_) {
       CloseHandle(present_fence_event_);
     }
+
+    if(swapchain_waitable_) {
+      CloseHandle(swapchain_waitable_);
+    }
   }
 
-  void present(RenderContext& rc) {
+  void present(SubmissionContext& sc) {
     swapchain_->Present(1, 0); // With vsync
-    UINT64 signal_value = current_present_fence_value_ + 1;
-    device_.graphics_queue()->Signal(present_fence_, signal_value);
-    current_present_fence_value_ = signal_value;
-    rc.present_fence_value(current_present_fence_value_);
+    UINT64 signal_value = ++current_present_fence_value_;
+    LOG(Trace) << "Presenting with fence value: " << signal_value;
+    throw_error(
+        present_fence_->SetEventOnCompletion(signal_value, present_fence_event_));
+    throw_error(device_.graphics_queue()->Signal(present_fence_, signal_value));
+    sc.present_fence_value(signal_value);
   }
 
   UINT get_current_image_index() const {
@@ -205,15 +242,17 @@ class Swapchain {
     return image_[idx];
   }
 
-  void wait(RenderContext& rc) {
+  void wait(SubmissionContext& sc) {
     std::array<HANDLE, 2> waitables = {swapchain_waitable_};
     DWORD num_waitables = 1;
 
+    auto completed_value = present_fence_->GetCompletedValue();
+    auto fence_value = sc.present_fence_value();
+    LOG(Trace) << "Waiting for fence value: " << fence_value << " ("
+               << completed_value << ")";
     // Can be zero if no fence is signaled.
-    auto fence_value = rc.present_fence_value();
     if(fence_value) {
-      rc.present_fence_value(0);
-      present_fence_->SetEventOnCompletion(fence_value, present_fence_event_);
+      sc.present_fence_value(0);
       waitables[1] = present_fence_event_;
       num_waitables = 2;
     }
@@ -298,14 +337,10 @@ class Swapchain {
 
 class ImGuiState {
  public:
-  ImGuiState(
-      Device& device,
-      GLFWwindow* window,
-      ID3D12CommandAllocator* command_allocator,
-      int num_swapchain_images)
+  ImGuiState(Device& device, GLFWwindow* window, int num_swapchain_images)
       : device_(device) {
     create_image_descriptors();
-    create_command_list(command_allocator);
+    create_command_list();
 
     // Setup Dear ImGui context
     IMGUI_CHECKVERSION();
@@ -338,8 +373,65 @@ class ImGuiState {
     ImGui::DestroyContext();
   }
 
+  void update() {
+    // Start the Dear ImGui frame
+    ImGui_ImplDX12_NewFrame();
+    ImGui_ImplGlfw_NewFrame();
+    ImGui::NewFrame();
+
+    // 1. Show the big demo window (Most of the sample code is in
+    // ImGui::ShowDemoWindow()! You can browse its code to learn more about
+    // Dear ImGui!).
+    if(show_demo_window_)
+      ImGui::ShowDemoWindow(&show_demo_window_);
+
+    // 2. Show a simple window that we create ourselves. We use a Begin/End
+    // pair to created a named window.
+    {
+      static float f = 0.0f;
+      static int counter = 0;
+
+      // Create a window called "Hello, world!" and append into it.
+      ImGui::Begin("Hello, world!");
+      // Display some text (you can use a format strings too)
+      ImGui::Text("This is some useful text.");
+      // Edit bools storing our window open/close state
+      ImGui::Checkbox("Demo Window", &show_demo_window_);
+      ImGui::Checkbox("Another Window", &show_another_window_);
+      // Edit 1 float using a slider from 0.0f to 1.0f
+      ImGui::SliderFloat("float", &f, 0.0f, 1.0f);
+      // Edit 3 floats representing a color
+      ImGui::ColorEdit3("clear color", reinterpret_cast<float*>(&clear_color_));
+      // Buttons return true when clicked (most widgets return true when
+      // edited/activated)
+      if(ImGui::Button("Button"))
+        counter++;
+      ImGui::SameLine();
+      ImGui::Text("counter = %d", counter);
+
+      ImGui::Text(
+          "Application average %.3f ms/frame (%.1f FPS)",
+          1000.0f / ImGui::GetIO().Framerate,
+          ImGui::GetIO().Framerate);
+      ImGui::End();
+    }
+
+    // 3. Show another simple window.
+    if(show_another_window_) {
+      // Pass a pointer to our bool variable (the window will have a closing
+      // button that will clear the bool when clicked)
+      ImGui::Begin("Another Window", &show_another_window_);
+      ImGui::Text("Hello from another window!");
+      if(ImGui::Button("Close Me"))
+        show_another_window_ = false;
+      ImGui::End();
+    }
+  }
+
   void render(SubmissionContext& sc, RenderContext& rc) {
-    sc.command_allocator()->Reset();
+    ImGui::Render();
+    throw_error(sc.command_allocator()->Reset());
+    throw_error(command_list_->Reset(sc.command_allocator(), NULL));
 
     D3D12_RESOURCE_BARRIER barrier = {};
     barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
@@ -348,9 +440,12 @@ class ImGuiState {
     barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
     barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_PRESENT;
     barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_RENDER_TARGET;
-    command_list_->Reset(sc.command_allocator(), NULL);
     command_list_->ResourceBarrier(1, &barrier);
-
+    command_list_->ClearRenderTargetView(
+        rc.image_descriptor(),
+        reinterpret_cast<float*>(&clear_color_),
+        0,
+        NULL);
     command_list_->OMSetRenderTargets(1, &rc.image_descriptor(), FALSE, nullptr);
 
     command_list_->SetDescriptorHeaps(1, &descriptor_heap_.p);
@@ -360,7 +455,7 @@ class ImGuiState {
     barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_RENDER_TARGET;
     barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_PRESENT;
     command_list_->ResourceBarrier(1, &barrier);
-    command_list_->Close();
+    throw_error(command_list_->Close());
 
     std::array<ID3D12CommandList*, 1> commands = {command_list_.p};
     device_.graphics_queue()->ExecuteCommandLists(commands.size(), commands.data());
@@ -376,19 +471,20 @@ class ImGuiState {
         device_.get()->CreateDescriptorHeap(&desc, IID_PPV_ARGS(&descriptor_heap_)));
   }
 
-  void create_command_list(ID3D12CommandAllocator* command_allocator) {
-    throw_error(device_.get()->CreateCommandList(
+  void create_command_list() {
+    throw_error(device_.get()->CreateCommandList1(
         0,
         D3D12_COMMAND_LIST_TYPE_DIRECT,
-        command_allocator, // Only used for create.
-        nullptr,
+        D3D12_COMMAND_LIST_FLAG_NONE,
         IID_PPV_ARGS(&command_list_)));
-    throw_error(command_list_->Close());
   }
 
   Device& device_;
   CComPtr<ID3D12DescriptorHeap> descriptor_heap_;
   CComPtr<ID3D12GraphicsCommandList> command_list_;
+  bool show_demo_window_ = true;
+  bool show_another_window_ = false;
+  ImVec4 clear_color_ = ImVec4(0.45f, 0.55f, 0.60f, 1.00f);
 };
 
 bool g_swapchain_rebuild_required = false;
@@ -416,14 +512,10 @@ int main(int, char**) {
 
   std::vector<SubmissionContext> submission_context_list;
 
-  int num_frame_in_flight = 3;
-  submission_context_list.resize(num_frame_in_flight, device);
+  int num_frames_in_flight = 3;
+  submission_context_list.resize(num_frames_in_flight, device);
 
-  ImGuiState imgui(
-      device,
-      window,
-      submission_context_list[0].command_allocator(),
-      num_swapchain_images);
+  ImGuiState imgui(device, window, num_swapchain_images);
 
   std::vector<RenderContext> render_context_list;
   render_context_list.resize(num_swapchain_images);
@@ -431,66 +523,6 @@ int main(int, char**) {
     auto& rc = render_context_list[i];
     rc.set_image(swapchain.image_descriptor(i), swapchain.image(i));
   }
-
-  // Load Fonts
-  // - If no fonts are loaded, dear imgui will use the default font. You can
-  // also load multiple fonts and use ImGui::PushFont()/PopFont() to select
-  // them.
-  // - AddFontFromFileTTF() will return the ImFont* so you can store it if you
-  // need to select the font among multiple.
-  // - If the file cannot be loaded, the function will return NULL. Please
-  // handle those errors in your application (e.g. use an assertion, or
-  // display an error and quit).
-  // - The fonts will be rasterized at a given size (w/ oversampling) and
-  // stored into a texture when calling
-  // ImFontAtlas::Build()/GetTexDataAsXXXX(), which ImGui_ImplXXXX_NewFrame
-  // below will call.
-  // - Read 'docs/FONTS.md' for more instructions and details.
-  // - Remember that in C/C++ if you want to include a backslash \ in a string
-  // literal you need to write a double backslash \\ !
-  // io.Fonts->AddFontDefault();
-  // io.Fonts->AddFontFromFileTTF("../../misc/fonts/Roboto-Medium.ttf", 16.0f);
-  // io.Fonts->AddFontFromFileTTF("../../misc/fonts/Cousine-Regular.ttf", 15.0f);
-  // io.Fonts->AddFontFromFileTTF("../../misc/fonts/DroidSans.ttf", 16.0f);
-  // io.Fonts->AddFontFromFileTTF("../../misc/fonts/ProggyTiny.ttf", 10.0f);
-  // ImFont* font =
-  // io.Fonts->AddFontFromFileTTF("c:\\Windows\\Fonts\\ArialUni.ttf", 18.0f,
-  // NULL, io.Fonts->GetGlyphRangesJapanese()); IM_ASSERT(font != NULL);
-
-  // Upload Fonts
-  {
-    // Use any command queue
-    // VkCommandPool command_pool = wd->Frames[wd->FrameIndex].CommandPool;
-    // VkCommandBuffer command_buffer = wd->Frames[wd->FrameIndex].CommandBuffer;
-
-    // err = vkResetCommandPool(g_Device, command_pool, 0);
-    // check_vk_result(err);
-    // VkCommandBufferBeginInfo begin_info = {};
-    // begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-    // begin_info.flags |= VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-    // err = vkBeginCommandBuffer(command_buffer, &begin_info);
-    // check_vk_result(err);
-
-    // ImGui_ImplVulkan_CreateFontsTexture(command_buffer);
-
-    // VkSubmitInfo end_info = {};
-    // end_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-    // end_info.commandBufferCount = 1;
-    // end_info.pCommandBuffers = &command_buffer;
-    // err = vkEndCommandBuffer(command_buffer);
-    // check_vk_result(err);
-    // err = vkQueueSubmit(g_Queue, 1, &end_info, VK_NULL_HANDLE);
-    // check_vk_result(err);
-
-    // err = vkDeviceWaitIdle(g_Device);
-    // check_vk_result(err);
-    // ImGui_ImplVulkan_DestroyFontUploadObjects();
-  }
-
-  // Our state
-  bool show_demo_window = true;
-  bool show_another_window = false;
-  ImVec4 clear_color = ImVec4(0.45f, 0.55f, 0.60f, 1.00f);
 
   std::uint32_t frame_index = 0;
   // Main loop
@@ -519,6 +551,8 @@ int main(int, char**) {
       }
     }
 
+    imgui.update();
+
     std::uint32_t next_frame_index = frame_index++;
     SubmissionContext& submission_context =
         submission_context_list[next_frame_index % submission_context_list.size()];
@@ -526,72 +560,13 @@ int main(int, char**) {
     RenderContext& render_context =
         render_context_list[swapchain.get_current_image_index()];
 
-    // Start the Dear ImGui frame
-    ImGui_ImplDX12_NewFrame();
-    ImGui_ImplGlfw_NewFrame();
-    ImGui::NewFrame();
-
-    // 1. Show the big demo window (Most of the sample code is in
-    // ImGui::ShowDemoWindow()! You can browse its code to learn more about
-    // Dear ImGui!).
-    if(show_demo_window)
-      ImGui::ShowDemoWindow(&show_demo_window);
-
-    // 2. Show a simple window that we create ourselves. We use a Begin/End
-    // pair to created a named window.
-    {
-      static float f = 0.0f;
-      static int counter = 0;
-
-      // Create a window called "Hello, world!" and append into it.
-      ImGui::Begin("Hello, world!");
-      // Display some text (you can use a format strings too)
-      ImGui::Text("This is some useful text.");
-      // Edit bools storing our window open/close state
-      ImGui::Checkbox("Demo Window", &show_demo_window);
-      ImGui::Checkbox("Another Window", &show_another_window);
-      // Edit 1 float using a slider from 0.0f to 1.0f
-      ImGui::SliderFloat("float", &f, 0.0f, 1.0f);
-      // Edit 3 floats representing a color
-      ImGui::ColorEdit3("clear color", (float*)&clear_color);
-      // Buttons return true when clicked (most widgets return true when
-      // edited/activated)
-      if(ImGui::Button("Button"))
-        counter++;
-      ImGui::SameLine();
-      ImGui::Text("counter = %d", counter);
-
-      ImGui::Text(
-          "Application average %.3f ms/frame (%.1f FPS)",
-          1000.0f / ImGui::GetIO().Framerate,
-          ImGui::GetIO().Framerate);
-      ImGui::End();
-    }
-
-    // 3. Show another simple window.
-    if(show_another_window) {
-      ImGui::Begin(
-          "Another Window",
-          &show_another_window); // Pass a pointer to our bool variable (the
-                                 // window will have a closing button that
-                                 // will clear the bool when clicked)
-      ImGui::Text("Hello from another window!");
-      if(ImGui::Button("Close Me"))
-        show_another_window = false;
-      ImGui::End();
-    }
-
-    // Rendering
-    ImGui::Render();
     ImDrawData* draw_data = ImGui::GetDrawData();
     bool const is_minimized =
         (draw_data->DisplaySize.x <= 0.0f || draw_data->DisplaySize.y <= 0.0f);
-    if(!is_minimized) {
-      swapchain.wait(render_context);
-      // memcpy(&wd->ClearValue.color.float32[0], &clear_color, 4 *sizeof(float));
-
+    if(true || !is_minimized) {
+      swapchain.wait(submission_context);
       imgui.render(submission_context, render_context);
-      swapchain.present(render_context);
+      swapchain.present(submission_context);
     }
   }
 
