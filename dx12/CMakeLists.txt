@@ -25,7 +25,7 @@ set(SOURCES
 add_executable(rndrx-dx12 ${SOURCES})
 
 target_link_libraries(rndrx-dx12 
-    PUBLIC d3d12 dxgi glfw
+    PUBLIC d3d12 dxgi glfw glm
     $<$<CONFIG:DEBUG>:dxguid>)
 
 target_include_directories(rndrx-dx12 PUBLIC 
@@ -39,4 +39,5 @@ target_compile_definitions(rndrx-dx12 PUBLIC
     _CRT_SECURE_NO_WARNINGS
     IMGUI_USE_STB_SPRINTF
     IMGUI_DISABLE_OBSOLETE_FUNCTIONS
-    $<$<CONFIG:DEBUG>:ENABLE_DX12_DEBUG_LAYER=1>)
+    $<$<CONFIG:DEBUG>:RNDRX_ENABLE_DX12_DEBUG_LAYER=1>
+    $<$<CONFIG:DEBUG>:RNDRX_ENABLE_SHADER_DEBUGGING=1>)
