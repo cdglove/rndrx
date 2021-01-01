@@ -20,8 +20,10 @@
 #include <d3dcompiler.h>
 #include <dxgi.h>
 #include <dxgi1_4.h>
+#include <algorithm>
 #include <array>
 #include <codecvt>
+#include <glm/vec2.hpp>
 #include <glm/vec3.hpp>
 #include <glm/vec4.hpp>
 #include <iostream>
@@ -147,29 +149,144 @@ class Window : noncopyable {
   int height_ = 1080;
 };
 
+class DescriptorList;
+class DescriptorHandle : noncopyable {
+ public:
+  DescriptorHandle() = default;
+  DescriptorHandle(DescriptorHandle&& other)
+      : owner_(other.owner_)
+      , cpu_(other.cpu_)
+      , gpu_(other.gpu_) {
+    other.owner_ = nullptr;
+  }
+
+  DescriptorHandle& operator=(DescriptorHandle&& other) {
+    owner_ = other.owner_;
+    cpu_ = other.cpu_;
+    gpu_ = other.gpu_;
+    other.owner_ = nullptr;
+    return *this;
+  }
+
+  ~DescriptorHandle();
+
+  D3D12_CPU_DESCRIPTOR_HANDLE const& cpu() const {
+    return cpu_;
+  }
+
+  D3D12_GPU_DESCRIPTOR_HANDLE const& gpu() const {
+    return gpu_;
+  }
+
+  void release() {
+    owner_ = nullptr;
+  }
+
+ private:
+  friend class DescriptorList;
+  DescriptorHandle(
+      DescriptorList& owner,
+      D3D12_CPU_DESCRIPTOR_HANDLE cpu,
+      D3D12_GPU_DESCRIPTOR_HANDLE gpu)
+      : owner_(&owner)
+      , cpu_(cpu)
+      , gpu_(gpu) {
+  }
+  DescriptorList* owner_ = {};
+  D3D12_CPU_DESCRIPTOR_HANDLE cpu_ = {};
+  D3D12_GPU_DESCRIPTOR_HANDLE gpu_ = {};
+};
+
+class DescriptorList : noncopyable {
+ public:
+  DescriptorList(
+      ID3D12Device* device,
+      D3D12_DESCRIPTOR_HEAP_TYPE type,
+      D3D12_DESCRIPTOR_HEAP_FLAGS flags,
+      UINT count) {
+    D3D12_DESCRIPTOR_HEAP_DESC desc = {};
+    desc.Type = type;
+    desc.NumDescriptors = count;
+    desc.Flags = flags;
+    throw_error(device->CreateDescriptorHeap(&desc, IID_PPV_ARGS(&heap_)));
+    cache_descriptor_handles(device, desc);
+  }
+
+  DescriptorHandle allocate() {
+    DescriptorHandle ret(*this, free_cpu_handles_.back(), free_gpu_handles_.back());
+    free_cpu_handles_.pop_back();
+    free_gpu_handles_.pop_back();
+    return ret;
+  }
+
+  template <typename OutputIterator>
+  void allocate(std::size_t count, OutputIterator iter) {
+    for(std::size_t i = 0; i < count; ++i) {
+      *iter++ = allocate();
+    }
+  }
+
+  void free(D3D12_CPU_DESCRIPTOR_HANDLE cpu, D3D12_GPU_DESCRIPTOR_HANDLE gpu) {
+    free_cpu_handles_.push_back(cpu);
+    free_gpu_handles_.push_back(gpu);
+  }
+
+  ID3D12DescriptorHeap* heap() const {
+    return heap_;
+  }
+
+ private:
+  void cache_descriptor_handles(
+      ID3D12Device* device,
+      D3D12_DESCRIPTOR_HEAP_DESC const& desc) {
+    auto size = device->GetDescriptorHandleIncrementSize(desc.Type);
+    auto cpu_handle = heap_->GetCPUDescriptorHandleForHeapStart();
+    std::generate_n(
+        std::back_inserter(free_cpu_handles_),
+        desc.NumDescriptors,
+        [&cpu_handle, size] {
+          auto ret = cpu_handle;
+          cpu_handle.ptr += size;
+          return ret;
+        });
+
+    auto gpu_handle = heap_->GetGPUDescriptorHandleForHeapStart();
+    std::generate_n(
+        std::back_inserter(free_gpu_handles_),
+        desc.NumDescriptors,
+        [&gpu_handle, size] {
+          auto ret = gpu_handle;
+          gpu_handle.ptr += size;
+          return ret;
+        });
+  }
+
+  CComPtr<ID3D12DescriptorHeap> heap_;
+  std::vector<D3D12_CPU_DESCRIPTOR_HANDLE> free_cpu_handles_;
+  std::vector<D3D12_GPU_DESCRIPTOR_HANDLE> free_gpu_handles_;
+};
+
+DescriptorHandle::~DescriptorHandle() {
+  if(owner_) {
+    owner_->free(cpu_, gpu_);
+  }
+}
+
 class Device : noncopyable {
  public:
   Device(IDXGIAdapter* adapter)
-      : adapter_(adapter) {
-#if RNDRX_ENABLE_DX12_DEBUG_LAYER
-    CComPtr<ID3D12Debug> dx12_debug;
-    if(SUCCEEDED(D3D12GetDebugInterface(IID_PPV_ARGS(&dx12_debug)))) {
-      dx12_debug->EnableDebugLayer();
-    }
-#endif
-
-    D3D_FEATURE_LEVEL featureLevel = D3D_FEATURE_LEVEL_11_0;
-    throw_error(D3D12CreateDevice(nullptr, featureLevel, IID_PPV_ARGS(&device_)));
-
-#if RNDRX_ENABLE_DX12_DEBUG_LAYER
-    if(dx12_debug) {
-      CComPtr<ID3D12InfoQueue> info_queue;
-      device_->QueryInterface(&info_queue);
-      info_queue->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_ERROR, true);
-      info_queue->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_CORRUPTION, true);
-      info_queue->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_WARNING, true);
-    }
-#endif
+      : device_(adapter)
+      , adapter_(adapter)
+      , rtv_list_(
+            device_.ptr,
+            D3D12_DESCRIPTOR_HEAP_TYPE_RTV,
+            D3D12_DESCRIPTOR_HEAP_FLAG_NONE,
+            128)
+      , srv_list_(
+            device_.ptr,
+            D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV,
+            D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE,
+            128) {
     create_graphics_queue();
   }
 
@@ -180,7 +297,7 @@ class Device : noncopyable {
   Device& operator=(Device const&) = delete;
 
   ID3D12Device4* get() const {
-    return device_;
+    return device_.ptr;
   }
 
   ID3D12CommandQueue* graphics_queue() const {
@@ -191,28 +308,54 @@ class Device : noncopyable {
     return adapter_;
   }
 
-  template <typename OutputIterator>
-  void cache_descriptor_handles(ID3D12DescriptorHeap* heap, OutputIterator out) {
-    auto desc = heap->GetDesc();
-    auto size = device_->GetDescriptorHandleIncrementSize(desc.Type);
-    auto handle = heap->GetCPUDescriptorHandleForHeapStart();
-    for(int i = 0; i < desc.NumDescriptors; ++i) {
-      *out++ = handle;
-      handle.ptr += size;
-    }
+  DescriptorList& rtv_list() {
+    return rtv_list_;
+  }
+
+  DescriptorList& srv_list() {
+    return srv_list_;
   }
 
  private:
+  struct DeviceCreator {
+    DeviceCreator(IDXGIAdapter* adapter) {
+#if RNDRX_ENABLE_DX12_DEBUG_LAYER
+      CComPtr<ID3D12Debug> dx12_debug;
+      if(SUCCEEDED(D3D12GetDebugInterface(IID_PPV_ARGS(&dx12_debug)))) {
+        dx12_debug->EnableDebugLayer();
+      }
+#endif
+
+      D3D_FEATURE_LEVEL featureLevel = D3D_FEATURE_LEVEL_11_0;
+      throw_error(D3D12CreateDevice(adapter, featureLevel, IID_PPV_ARGS(&ptr)));
+
+#if RNDRX_ENABLE_DX12_DEBUG_LAYER
+      if(dx12_debug) {
+        CComPtr<ID3D12InfoQueue> info_queue;
+        ptr->QueryInterface(&info_queue);
+        info_queue->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_ERROR, true);
+        info_queue->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_CORRUPTION, true);
+        info_queue->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_WARNING, true);
+      }
+#endif
+    }
+
+    CComPtr<ID3D12Device4> ptr;
+  };
+
   void create_graphics_queue() {
     D3D12_COMMAND_QUEUE_DESC desc = {};
     desc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
     desc.Flags = D3D12_COMMAND_QUEUE_FLAG_NONE;
-    throw_error(device_->CreateCommandQueue(&desc, IID_PPV_ARGS(&graphics_queue_)));
+    auto* device = get();
+    throw_error(device->CreateCommandQueue(&desc, IID_PPV_ARGS(&graphics_queue_)));
   }
 
-  CComPtr<ID3D12Device4> device_;
+  DeviceCreator device_;
   CComPtr<ID3D12CommandQueue> graphics_queue_;
   IDXGIAdapter* adapter_ = nullptr;
+  DescriptorList rtv_list_;
+  DescriptorList srv_list_;
 };
 
 class SubmissionContext : noncopyable {
@@ -243,6 +386,8 @@ class SubmissionContext : noncopyable {
   void begin_rendering(ID3D12GraphicsCommandList* command_list) {
     command_list->Reset(command_allocator(), nullptr);
     command_list_ = command_list;
+    std::array<ID3D12DescriptorHeap*, 1> heaps = {device_.srv_list().heap()};
+    command_list_->SetDescriptorHeaps(heaps.size(), heaps.data());
   }
 
   void finish_rendering() {
@@ -265,20 +410,20 @@ class SubmissionContext : noncopyable {
 
 class RenderContext : noncopyable {
  public:
-  void image(ID3D12Resource* image) {
-    image_ = image;
+  void target_image(ID3D12Resource* image) {
+    target_image_ = image;
   }
 
-  ID3D12Resource* image() const {
-    return image_;
+  ID3D12Resource* target_image() const {
+    return target_image_;
   }
 
-  void image_view(D3D12_CPU_DESCRIPTOR_HANDLE image_view) {
-    image_view_ = image_view;
+  void target_view(DescriptorHandle const& image_view) {
+    target_view_ = &image_view;
   }
 
-  D3D12_CPU_DESCRIPTOR_HANDLE image_view() const {
-    return image_view_;
+  DescriptorHandle const& target_view() const {
+    return *target_view_;
   }
 
   void viewport(int width, int height) {
@@ -306,10 +451,18 @@ class RenderContext : noncopyable {
     return scissor_;
   }
 
- private:
-  D3D12_CPU_DESCRIPTOR_HANDLE image_view_ = {};
-  ID3D12Resource* image_ = nullptr;
+  void descriptor(int idx, DescriptorHandle const& handle) {
+    descriptor_ = &handle;
+  }
 
+  DescriptorHandle const& descriptor(int idx) const {
+    return *descriptor_;
+  }
+
+ private:
+  DescriptorHandle const* target_view_ = nullptr;
+  ID3D12Resource* target_image_ = nullptr;
+  DescriptorHandle const* descriptor_ = nullptr;
   D3D12_VIEWPORT viewport_;
   D3D12_RECT scissor_;
 };
@@ -321,7 +474,6 @@ class Swapchain : noncopyable {
       , window_(window)
       , num_images_(num_images) {
     create_swapchain();
-    create_image_view();
     create_images();
     create_fence();
   }
@@ -344,7 +496,7 @@ class Swapchain : noncopyable {
     return swapchain_->GetCurrentBackBufferIndex();
   }
 
-  D3D12_CPU_DESCRIPTOR_HANDLE const& image_descriptor(int idx) const {
+  DescriptorHandle const& image_descriptor(int idx) const {
     return image_view_[idx];
   }
 
@@ -435,23 +587,13 @@ class Swapchain : noncopyable {
     swapchain_waitable_ = swapchain_->GetFrameLatencyWaitableObject();
   }
 
-  void create_image_view() {
-    auto* device = device_.get();
-    D3D12_DESCRIPTOR_HEAP_DESC desc = {};
-    desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
-    desc.NumDescriptors = num_images_;
-    desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
-    throw_error(
-        device->CreateDescriptorHeap(&desc, IID_PPV_ARGS(&image_view_heap_)));
-    device_.cache_descriptor_handles(image_view_heap_, image_view_.begin());
-  }
-
   void create_images() {
+    device_.rtv_list().allocate(num_images_, image_view_.begin());
     auto* device = device_.get();
     for(int i = 0; i < num_images_; ++i) {
       CComPtr<ID3D12Resource> image;
       swapchain_->GetBuffer(i, IID_PPV_ARGS(&image));
-      device->CreateRenderTargetView(image, nullptr, image_view_[i]);
+      device->CreateRenderTargetView(image, nullptr, image_view_[i].cpu());
       image_[i] = std::move(image);
     }
   }
@@ -474,12 +616,11 @@ class Swapchain : noncopyable {
   int width_ = 0;
   int height_ = 0;
   CComPtr<IDXGISwapChain3> swapchain_;
-  CComPtr<ID3D12DescriptorHeap> image_view_heap_;
   CComPtr<ID3D12Fence> present_fence_;
   UINT64 current_present_fence_value_ = 0;
   HANDLE present_fence_event_ = nullptr;
   HANDLE swapchain_waitable_ = nullptr;
-  std::array<D3D12_CPU_DESCRIPTOR_HANDLE, 3> image_view_ = {};
+  std::array<DescriptorHandle, 3> image_view_ = {};
   std::array<CComPtr<ID3D12Resource>, 3> image_;
 };
 
@@ -487,10 +628,7 @@ class ImGuiState : noncopyable {
  public:
   ImGuiState(Device& device, Window& window, int num_swapchain_images)
       : device_(device) {
-    create_shader_descriptor();
-    create_image_descriptor();
     create_image(window.width(), window.height());
-    create_command_list();
 
     // Setup Dear ImGui context
     IMGUI_CHECKVERSION();
@@ -508,14 +646,16 @@ class ImGuiState : noncopyable {
     // Hijjacking vulkan glfw for dx12 seems to work
     ImGui_ImplGlfw_InitForVulkan(window.glfw(), true);
 
+    font_view_ = device_.srv_list().allocate();
+
     // Setup Platform/Renderer backends
     ImGui_ImplDX12_Init(
         device.get(),
         num_swapchain_images,
         DXGI_FORMAT_R8G8B8A8_UNORM,
-        shader_heap_,
-        shader_heap_->GetCPUDescriptorHandleForHeapStart(),
-        shader_heap_->GetGPUDescriptorHandleForHeapStart());
+        device_.srv_list().heap(),
+        font_view_.cpu(),
+        font_view_.gpu());
   }
 
   ~ImGuiState() {
@@ -550,11 +690,14 @@ class ImGuiState : noncopyable {
         &heap,
         D3D12_HEAP_FLAG_NONE,
         &desc,
-        D3D12_RESOURCE_STATE_COPY_SOURCE,
+        D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
         &clear,
         IID_PPV_ARGS(&image_)));
 
-    device->CreateRenderTargetView(image_, nullptr, image_view_);
+    image_view_ = device_.rtv_list().allocate();
+    device->CreateRenderTargetView(image_, nullptr, image_view_.cpu());
+    resource_view_ = device_.srv_list().allocate();
+    device->CreateShaderResourceView(image_, nullptr, resource_view_.cpu());
   }
 
   void update() {
@@ -562,164 +705,113 @@ class ImGuiState : noncopyable {
     ImGui_ImplDX12_NewFrame();
     ImGui_ImplGlfw_NewFrame();
     ImGui::NewFrame();
-
-    // 1. Show the big demo window (Most of the sample code is in
-    // ImGui::ShowDemoWindow()! You can browse its code to learn more about
-    // Dear ImGui!).
-    if(show_demo_window_)
-      ImGui::ShowDemoWindow(&show_demo_window_);
-
-    // 2. Show a simple window that we create ourselves. We use a Begin/End
-    // pair to created a named window.
-    {
-      static float f = 0.0f;
-      static int counter = 0;
-
-      // Create a window called "Hello, world!" and append into it.
-      ImGui::Begin("Hello, world!");
-      // Display some text (you can use a format strings too)
-      ImGui::Text("This is some useful text.");
-      // Edit bools storing our window open/close state
-      ImGui::Checkbox("Demo Window", &show_demo_window_);
-      ImGui::Checkbox("Another Window", &show_another_window_);
-      // Edit 1 float using a slider from 0.0f to 1.0f
-      ImGui::SliderFloat("float", &f, 0.0f, 1.0f);
-      // Edit 3 floats representing a color
-      ImGui::ColorEdit3("clear color", reinterpret_cast<float*>(&clear_colour_));
-      // Buttons return true when clicked (most widgets return true when
-      // edited/activated)
-      if(ImGui::Button("Button"))
-        counter++;
-      ImGui::SameLine();
-      ImGui::Text("counter = %d", counter);
-
-      ImGui::Text(
-          "Application average %.3f ms/frame (%.1f FPS)",
-          1000.0f / ImGui::GetIO().Framerate,
-          ImGui::GetIO().Framerate);
-      ImGui::End();
-    }
-
-    // 3. Show another simple window.
-    if(show_another_window_) {
-      // Pass a pointer to our bool variable (the window will have a closing
-      // button that will clear the bool when clicked)
-      ImGui::Begin("Another Window", &show_another_window_);
-      ImGui::Text("Hello from another window!");
-      if(ImGui::Button("Close Me"))
-        show_another_window_ = false;
-      ImGui::End();
-    }
   }
 
   void render(SubmissionContext& sc) {
     ImGui::Render();
-    throw_error(command_list_->Reset(sc.command_allocator(), NULL));
+    auto command_list = sc.command_list();
 
     D3D12_RESOURCE_BARRIER barrier = {};
     barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
     barrier.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
     barrier.Transition.pResource = image_;
     barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-    barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_SOURCE;
+    barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
     barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_RENDER_TARGET;
-    command_list_->ResourceBarrier(1, &barrier);
+    command_list->ResourceBarrier(1, &barrier);
 
-    command_list_->ClearRenderTargetView(image_view_, &clear_colour_.x, 0, nullptr);
-    command_list_->OMSetRenderTargets(1, &image_view_, FALSE, nullptr);
-    command_list_->SetDescriptorHeaps(1, &shader_heap_.p);
-    ImGui_ImplDX12_RenderDrawData(ImGui::GetDrawData(), command_list_);
+    command_list->ClearRenderTargetView(image_view_.cpu(), &clear_colour_.x, 0, nullptr);
+    command_list->OMSetRenderTargets(1, &image_view_.cpu(), FALSE, nullptr);
+    ImGui_ImplDX12_RenderDrawData(ImGui::GetDrawData(), command_list);
 
     barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_RENDER_TARGET;
-    barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_SOURCE;
-    command_list_->ResourceBarrier(1, &barrier);
-    throw_error(command_list_->Close());
-
-    std::array<ID3D12CommandList*, 1> commands = {command_list_.p};
-    device_.graphics_queue()->ExecuteCommandLists(commands.size(), commands.data());
+    barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
+    command_list->ResourceBarrier(1, &barrier);
   }
 
-  ID3D12Resource* image() const {
-    return image_;
+  DescriptorHandle const& resource_view() {
+    return resource_view_;
   }
 
  private:
-  void create_shader_descriptor() {
-    D3D12_DESCRIPTOR_HEAP_DESC desc = {};
-    desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
-    desc.NumDescriptors = 1;
-    desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
-    auto* device = device_.get();
-    throw_error(device->CreateDescriptorHeap(&desc, IID_PPV_ARGS(&shader_heap_)));
-  }
-
-  void create_image_descriptor() {
-    D3D12_DESCRIPTOR_HEAP_DESC desc = {};
-    desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
-    desc.NumDescriptors = 1;
-    desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
-    auto* device = device_.get();
-    throw_error(device->CreateDescriptorHeap(&desc, IID_PPV_ARGS(&image_heap_)));
-    device_.cache_descriptor_handles(image_heap_, &image_view_);
-  }
-
-  void create_command_list() {
-    auto* device = device_.get();
-    throw_error(device->CreateCommandList1(
-        0,
-        D3D12_COMMAND_LIST_TYPE_DIRECT,
-        D3D12_COMMAND_LIST_FLAG_NONE,
-        IID_PPV_ARGS(&command_list_)));
-  }
-
   Device& device_;
-  CComPtr<ID3D12DescriptorHeap> shader_heap_;
-  CComPtr<ID3D12DescriptorHeap> image_heap_;
-  CComPtr<ID3D12GraphicsCommandList> command_list_;
-  D3D12_CPU_DESCRIPTOR_HANDLE image_view_ = {};
+  DescriptorHandle image_view_;
+  DescriptorHandle resource_view_;
+  DescriptorHandle font_view_;
   CComPtr<ID3D12Resource> image_;
   bool show_demo_window_ = false;
   bool show_another_window_ = false;
-  ImVec4 clear_colour_ = ImVec4(0.45f, 0.55f, 0.60f, 1.00f);
+  glm::vec4 clear_colour_ = {0.f, 0.f, 0.f, 1.f};
 };
 
 class FullscreenPass : noncopyable {
  public:
-  FullscreenPass(Device& d, Window& w) {
+  FullscreenPass(Device& d) {
     create_root_signature(d);
     create_pipeline(d);
-    create_vertex_buffer(d, w);
+    create_vertex_buffer(d);
   }
 
   void render(RenderContext& rc, SubmissionContext& sc) {
     auto* command_list = sc.command_list();
     command_list->SetGraphicsRootSignature(root_signature_);
-
+    command_list->SetGraphicsRootDescriptorTable(0, rc.descriptor(0).gpu());
     command_list->RSSetViewports(1, &rc.viewport());
     command_list->RSSetScissorRects(1, &rc.scissor());
-    command_list->OMSetRenderTargets(1, &rc.image_view(), FALSE, nullptr);
+    command_list->OMSetRenderTargets(1, &rc.target_view().cpu(), FALSE, nullptr);
     command_list->SetPipelineState(pipeline_);
-
-    // glm::vec4 clear_colour(0.5f, 0.2f, 0.4f, 0.f);
-    // command_list->ClearRenderTargetView(rc.image_view(), &clear_colour[0], 0,
-    // nullptr);
     command_list->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
     command_list->IASetVertexBuffers(0, 1, &vertex_buffer_view_);
-    command_list->DrawInstanced(3, 1, 0, 0);
+    command_list->DrawInstanced(6, 1, 0, 0);
   }
 
  private:
   struct Vertex {
     glm::vec3 position;
-    glm::vec4 colour;
+    glm::vec2 uv;
   };
 
   void create_root_signature(Device& d) {
-    auto* device = d.get();
+    D3D12_DESCRIPTOR_RANGE descriptor_range = {};
+    descriptor_range.NumDescriptors = 1;
+    descriptor_range.BaseShaderRegister = 0;
+    descriptor_range.OffsetInDescriptorsFromTableStart = 0;
+    descriptor_range.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+    descriptor_range.RegisterSpace = 0;
+
+    D3D12_ROOT_DESCRIPTOR_TABLE descriptor_table = {};
+    descriptor_table.NumDescriptorRanges = 1;
+    descriptor_table.pDescriptorRanges = &descriptor_range;
+
+    D3D12_ROOT_PARAMETER root_parameters = {};
+    root_parameters.DescriptorTable = descriptor_table;
+    root_parameters.ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+    root_parameters.ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+
+    D3D12_STATIC_SAMPLER_DESC sampler = {};
+    sampler.Filter = D3D12_FILTER_MIN_MAG_MIP_POINT;
+    sampler.AddressU = D3D12_TEXTURE_ADDRESS_MODE_BORDER;
+    sampler.AddressV = D3D12_TEXTURE_ADDRESS_MODE_BORDER;
+    sampler.AddressW = D3D12_TEXTURE_ADDRESS_MODE_BORDER;
+    sampler.MipLODBias = 0;
+    sampler.MaxAnisotropy = 0;
+    sampler.ComparisonFunc = D3D12_COMPARISON_FUNC_NEVER;
+    sampler.BorderColor = D3D12_STATIC_BORDER_COLOR_TRANSPARENT_BLACK;
+    sampler.MinLOD = 0.0f;
+    sampler.MaxLOD = D3D12_FLOAT32_MAX;
+    sampler.ShaderRegister = 0;
+    sampler.RegisterSpace = 0;
+    sampler.ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+
     D3D12_ROOT_SIGNATURE_DESC desc = {};
     desc.Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
+    desc.NumStaticSamplers = 1;
+    desc.pStaticSamplers = &sampler;
+    desc.NumParameters = 1;
+    desc.pParameters = &root_parameters;
     CComPtr<ID3DBlob> signature;
     CComPtr<ID3DBlob> error;
+    auto* device = d.get();
     throw_error(D3D12SerializeRootSignature(
         &desc,
         D3D_ROOT_SIGNATURE_VERSION_1,
@@ -746,17 +838,17 @@ class FullscreenPass : noncopyable {
 
     // clang-format off
     throw_error(D3DCompileFromFile(
-        L"shaders.hlsl", nullptr, nullptr,
+        L"fullscreen_quad.hlsl", nullptr, nullptr,
         "VSMain", "vs_5_0", compile_flags,
         0, &vertex_shader, nullptr));
     throw_error(D3DCompileFromFile(
-        L"shaders.hlsl", nullptr, nullptr,
+        L"fullscreen_quad.hlsl", nullptr, nullptr,
         "PSMain", "ps_5_0", compile_flags,
         0, &pixel_shader, nullptr));
 
     D3D12_INPUT_ELEMENT_DESC vertex_layout[] = {
         {"POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
-        {"COLOR", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0}
+        {"TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0}
     };
     // clang-format on
 
@@ -784,13 +876,13 @@ class FullscreenPass : noncopyable {
     D3D12_BLEND_DESC blend_desc = {};
     blend_desc.AlphaToCoverageEnable = FALSE;
     blend_desc.IndependentBlendEnable = FALSE;
-    blend_desc.RenderTarget[0].BlendEnable = FALSE;
+    blend_desc.RenderTarget[0].BlendEnable = TRUE;
     blend_desc.RenderTarget[0].LogicOpEnable = FALSE;
-    blend_desc.RenderTarget[0].SrcBlend = D3D12_BLEND_ONE;
-    blend_desc.RenderTarget[0].DestBlend = D3D12_BLEND_ZERO;
+    blend_desc.RenderTarget[0].SrcBlend = D3D12_BLEND_INV_SRC_ALPHA;
+    blend_desc.RenderTarget[0].DestBlend = D3D12_BLEND_SRC_ALPHA;
     blend_desc.RenderTarget[0].BlendOp = D3D12_BLEND_OP_ADD;
     blend_desc.RenderTarget[0].SrcBlendAlpha = D3D12_BLEND_ONE;
-    blend_desc.RenderTarget[0].DestBlendAlpha = D3D12_BLEND_ZERO;
+    blend_desc.RenderTarget[0].DestBlendAlpha = D3D12_BLEND_ONE;
     blend_desc.RenderTarget[0].BlendOpAlpha = D3D12_BLEND_OP_ADD;
     blend_desc.RenderTarget[0].LogicOp = D3D12_LOGIC_OP_NOOP;
     blend_desc.RenderTarget[0].RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
@@ -813,27 +905,20 @@ class FullscreenPass : noncopyable {
         device->CreateGraphicsPipelineState(&pso_desc, IID_PPV_ARGS(&pipeline_)));
   }
 
-  void create_vertex_buffer(Device& d, Window& w) {
+  void create_vertex_buffer(Device& d) {
     auto* device = d.get();
-    float aspect_ratio = static_cast<float>(w.width()) / w.height();
-    // Define the geometry for a triangle.
 
-    std::array<Vertex, 3> vertices = {};
-    // float size = 0.5f;
-    // vertices[0].position = glm::vec3(0.0f, size * aspect_ratio, 0.0f);
-    // vertices[0].colour = glm::vec4(1.0f, 0.0f, 0.0f, 1.0f);
-    // vertices[1].position = glm::vec3(size, -size * aspect_ratio, 0.0f);
-    // vertices[1].colour = glm::vec4(0.0f, 1.0f, 0.0f, 1.0f);
-    // vertices[2].position = glm::vec3(-size, -size * aspect_ratio, 0.0f);
-    // vertices[2].colour = glm::vec4(0.0f, 0.0f, 1.0f, 1.0f);
-
-    // float size = 0.5f;
-    vertices[0].position = glm::vec3(0.0f, 1.f, 0.0f);
-    vertices[0].colour = glm::vec4(1.0f, 0.0f, 0.0f, 1.0f);
-    vertices[1].position = glm::vec3(1.f, -1.f, 0.0f);
-    vertices[1].colour = glm::vec4(0.0f, 1.0f, 0.0f, 1.0f);
-    vertices[2].position = glm::vec3(-1.f, -1.f, 0.0f);
-    vertices[2].colour = glm::vec4(0.0f, 0.0f, 1.0f, 1.0f);
+    std::array<Vertex, 6> vertices = {};
+    vertices[0].position = glm::vec3(-1.f, 1.f, 0.f);
+    vertices[0].uv = glm::vec2(0, 0);
+    vertices[1].position = glm::vec3(1.f, 1.f, 0.f);
+    vertices[1].uv = glm::vec2(1, 0);
+    vertices[2].position = glm::vec3(-1.f, -1.f, 0.f);
+    vertices[2].uv = glm::vec2(0, 1);
+    vertices[3] = vertices[1];
+    vertices[4].position = glm::vec3(1.f, -1.f, 0.f);
+    vertices[4].uv = glm::vec2(1, 1);
+    vertices[5] = vertices[2];
 
     D3D12_RESOURCE_DESC desc = {};
     desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
@@ -865,13 +950,13 @@ class FullscreenPass : noncopyable {
 
     D3D12_RANGE read_range;
     read_range.Begin = 0;
-    read_range.End = 0;
+    read_range.End = sizeof(vertices);
     UINT8* buffer = nullptr;
     throw_error(
         vertex_buffer_->Map(0, &read_range, reinterpret_cast<void**>(&buffer)));
 
     std::memcpy(buffer, vertices.data(), sizeof(vertices));
-    vertex_buffer_->Unmap(0, nullptr);
+    vertex_buffer_->Unmap(0, &read_range);
 
     vertex_buffer_view_.BufferLocation = vertex_buffer_->GetGPUVirtualAddress();
     vertex_buffer_view_.StrideInBytes = sizeof(Vertex);
@@ -924,13 +1009,13 @@ class Application : noncopyable {
     render_context_list.resize(swapchain.image_count());
     for(std::size_t i = 0; i < render_context_list.size(); ++i) {
       auto&& rc = render_context_list[i];
-      rc.image(swapchain.image(i));
-      rc.image_view(swapchain.image_descriptor(i));
+      rc.target_image(swapchain.image(i));
+      rc.target_view(swapchain.image_descriptor(i));
       rc.scissor(0, window_.width(), 0, window_.height());
       rc.viewport(window_.width(), window_.height());
     }
 
-    FullscreenPass triangle(device, window_);
+    FullscreenPass triangle(device);
 
     CComPtr<ID3D12GraphicsCommandList> command_list;
     throw_error(device.get()->CreateCommandList1(
@@ -941,16 +1026,8 @@ class Application : noncopyable {
 
     std::uint32_t frame_index = 0;
     while(!glfwWindowShouldClose(window_.glfw())) {
-      // Poll and handle events (inputs, window resize, etc.)
-      // You can read the io.WantCaptureMouse, io.WantCaptureKeyboard flags
-      // to tell if dear imgui wants to use your inputs.
-      // - When io.WantCaptureMouse is true, do not dispatch mouse input
-      // data to your main application.
-      // - When io.WantCaptureKeyboard is true, do not dispatch keyboard
-      // input data to your main application. Generally you may always pass
-      // all inputs to dear imgui, and hide them from your application based
-      // on those two flags.
       glfwPollEvents();
+      
       if(handle_window_size(swapchain, render_context_list) ==
          Window::SizeEvent::Changed) {
         imgui.create_image(window_.width(), window_.height());
@@ -961,7 +1038,6 @@ class Application : noncopyable {
       if(ImGui::Begin("Adapter Info")) {
         int selected_index = adapter_index_;
         ImGui::Combo("##name", &selected_index, adapter_names_.data());
-        ImGui::End();
         if(selected_index != adapter_index_) {
           adapter_index_ = selected_index;
           LOG(Info) << "Adapter switch detected.";
@@ -970,6 +1046,17 @@ class Application : noncopyable {
           // then calls run again.
           return true;
         }
+        ImGui::End();
+      }
+
+      if(ImGui::Begin("Scene Settings")) {
+        // Edit 3 floats representing a color
+        ImGui::ColorEdit3("Clear Colour", &clear_colour_[0]);
+        ImGui::Text(
+            "Application average %.3f ms/frame (%.1f FPS)",
+            1000.0f / ImGui::GetIO().Framerate,
+            ImGui::GetIO().Framerate);
+        ImGui::End();
       }
 
       std::uint32_t next_frame_index = frame_index++;
@@ -981,29 +1068,25 @@ class Application : noncopyable {
 
       swapchain.wait(submission_context);
       submission_context.begin_frame();
+      submission_context.begin_rendering(command_list);
       imgui.render(submission_context);
 
-      submission_context.begin_rendering(command_list);
+      render_context.descriptor(0, imgui.resource_view());
+
       D3D12_RESOURCE_BARRIER barrier = {};
       barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
       barrier.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
-      barrier.Transition.pResource = render_context.image();
+      barrier.Transition.pResource = render_context.target_image();
       barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
       barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_PRESENT;
-      barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_DEST;
-      command_list->ResourceBarrier(1, &barrier);
-
-      D3D12_TEXTURE_COPY_LOCATION src = {};
-      src.pResource = imgui.image();
-      src.SubresourceIndex = 0;
-
-      D3D12_TEXTURE_COPY_LOCATION dest = {};
-      dest.pResource = render_context.image();
-      dest.SubresourceIndex = 0;
-      command_list->CopyTextureRegion(&dest, 0, 0, 0, &src, nullptr);
-      barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_DEST;
       barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_RENDER_TARGET;
       command_list->ResourceBarrier(1, &barrier);
+
+      command_list->ClearRenderTargetView(
+          render_context.target_view().cpu(),
+          &clear_colour_[0],
+          0,
+          nullptr);
 
       triangle.render(render_context, submission_context);
 
@@ -1044,8 +1127,8 @@ class Application : noncopyable {
       render_context_list.resize(swapchain.image_count());
       for(std::size_t i = 0; i < render_context_list.size(); ++i) {
         auto&& rc = render_context_list[i];
-        rc.image(swapchain.image(i));
-        rc.image_view(swapchain.image_descriptor(i));
+        rc.target_image(swapchain.image(i));
+        rc.target_view(swapchain.image_descriptor(i));
         rc.scissor(0, window_.width(), 0, window_.height());
         rc.viewport(window_.width(), window_.height());
       }
@@ -1056,6 +1139,7 @@ class Application : noncopyable {
 
   std::vector<CComPtr<IDXGIAdapter>> adapters_;
   int adapter_index_ = 0;
+  glm::vec4 clear_colour_ = {0.4f, 0.45f, 0.6f, 1.f};
   std::vector<char> adapter_names_;
   Window& window_;
 };
