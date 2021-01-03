@@ -32,7 +32,6 @@
 #include <string>
 #include <string_view>
 #include <vector>
-//#include "d3dx12.h"
 #include "imgui.h"
 #include "imgui_impl_dx12.h"
 #include "imgui_impl_glfw.h"
@@ -725,6 +724,8 @@ class ResourceCreator : noncopyable {
     return staging_resource;
   }
 
+  // calculate_staging_size_for_resource, memcpy_subresource, and
+  // update_subresources taken from d3dx12.h from dx12 samples.
   std::uint64_t calculate_staging_size_for_resource(
       ID3D12Resource* resource,
       unsigned index,
@@ -737,8 +738,6 @@ class ResourceCreator : noncopyable {
     return size;
   }
 
-  //------------------------------------------------------------------------------------------------
-  // Row-by-row memcpy
   inline void memcpy_subresource(
       D3D12_MEMCPY_DEST const* dest,
       D3D12_SUBRESOURCE_DATA const* src,
@@ -758,8 +757,6 @@ class ResourceCreator : noncopyable {
     }
   }
 
-  //------------------------------------------------------------------------------------------------
-  // All arrays must be populated (e.g. by calling GetCopyableFootprints)
   std::uint64_t update_subresources(
       ID3D12Resource* destination,
       ID3D12Resource* staging,
@@ -949,7 +946,7 @@ void load(Image& image, ResourceCreator& rc, char const* path) {
                   image_resource = std::move(image_resource),
                   staging_resouce = std::move(staging_resouce)](
                      ResourceCreator& rc,
-                     SubmissionContext& sc) {
+                     SubmissionContext& sc) mutable {
     D3D12_RESOURCE_BARRIER barrier = {};
     barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
     barrier.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
@@ -1241,10 +1238,12 @@ class ImGuiState : noncopyable {
 
 class FullscreenPass : noncopyable {
  public:
-  FullscreenPass(Device& d, FragmentShaderHandle const& pixel_shader) {
+  FullscreenPass(
+      Device& d,
+      VertexShaderHandle const& vertex_shader,
+      FragmentShaderHandle const& pixel_shader) {
     create_root_signature(d);
-    create_pipeline(d, pixel_shader);
-    create_vertex_buffer(d);
+    create_pipeline(d, vertex_shader, pixel_shader);
   }
 
   void render(RenderContext& rc, SubmissionContext& sc) {
@@ -1256,7 +1255,6 @@ class FullscreenPass : noncopyable {
     command_list->OMSetRenderTargets(1, &rc.target_view().cpu(), FALSE, nullptr);
     command_list->SetPipelineState(pipeline_);
     command_list->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-    command_list->IASetVertexBuffers(0, 1, &vertex_buffer_view_);
     command_list->DrawInstanced(6, 1, 0, 0);
   }
 
@@ -1319,36 +1317,24 @@ class FullscreenPass : noncopyable {
         IID_PPV_ARGS(&root_signature_)));
   }
 
-  void create_pipeline(Device& d, FragmentShaderHandle const& pixel_shader) {
-    auto* device = d.get();
-    CComPtr<ID3DBlob> vertex_shader;
-
-#if RNDRX_ENABLE_SHADER_DEBUGGING
-    // Enable better shader debugging with the graphics debugging tools.
-    unsigned compile_flags = D3DCOMPILE_DEBUG | D3DCOMPILE_SKIP_OPTIMIZATION;
-#else
-    unsigned compile_flags = 0;
-#endif
-
+  void create_pipeline(
+      Device& d,
+      VertexShaderHandle const& vs,
+      FragmentShaderHandle const& fs) {
     // clang-format off
-    throw_error(D3DCompileFromFile(
-        L"assets/shaders/fullscreen_quad.hlsl", nullptr, nullptr,
-        "VSMain", "vs_5_0", compile_flags,
-        0, &vertex_shader, nullptr));
-
-    std::array<D3D12_INPUT_ELEMENT_DESC, 2> vertex_layout {{
-        {"POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
-        {"TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
-    }};
+    // std::array<D3D12_INPUT_ELEMENT_DESC, 2> vertex_layout {{
+    //     {"POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+    //     {"TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+    // }};
     // clang-format on
 
     D3D12_SHADER_BYTECODE vs_bytecode = {};
-    vs_bytecode.pShaderBytecode = vertex_shader->GetBufferPointer();
-    vs_bytecode.BytecodeLength = vertex_shader->GetBufferSize();
+    vs_bytecode.pShaderBytecode = vs.code()->GetBufferPointer();
+    vs_bytecode.BytecodeLength = vs.code()->GetBufferSize();
 
     D3D12_SHADER_BYTECODE ps_bytecode = {};
-    ps_bytecode.pShaderBytecode = pixel_shader.code()->GetBufferPointer();
-    ps_bytecode.BytecodeLength = pixel_shader.code()->GetBufferSize();
+    ps_bytecode.pShaderBytecode = fs.code()->GetBufferPointer();
+    ps_bytecode.BytecodeLength = fs.code()->GetBufferSize();
 
     D3D12_RASTERIZER_DESC raster_desc = {};
     raster_desc.FillMode = D3D12_FILL_MODE_SOLID;
@@ -1378,7 +1364,7 @@ class FullscreenPass : noncopyable {
     blend_desc.RenderTarget[0].RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
 
     D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc = {};
-    pso_desc.InputLayout = {vertex_layout.data(), vertex_layout.size()};
+    pso_desc.InputLayout = {nullptr, 0};
     pso_desc.pRootSignature = root_signature_;
     pso_desc.VS = vs_bytecode;
     pso_desc.PS = ps_bytecode;
@@ -1391,72 +1377,14 @@ class FullscreenPass : noncopyable {
     pso_desc.NumRenderTargets = 1;
     pso_desc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
     pso_desc.SampleDesc.Count = 1;
+
+    auto* device = d.get();
     throw_error(
         device->CreateGraphicsPipelineState(&pso_desc, IID_PPV_ARGS(&pipeline_)));
   }
 
-  void create_vertex_buffer(Device& d) {
-    auto* device = d.get();
-
-    std::array<Vertex, 6> vertices = {};
-    vertices[0].position = glm::vec3(-1.f, 1.f, 0.f);
-    vertices[0].uv = glm::vec2(0, 0);
-    vertices[1].position = glm::vec3(1.f, 1.f, 0.f);
-    vertices[1].uv = glm::vec2(1, 0);
-    vertices[2].position = glm::vec3(-1.f, -1.f, 0.f);
-    vertices[2].uv = glm::vec2(0, 1);
-    vertices[3] = vertices[1];
-    vertices[4].position = glm::vec3(1.f, -1.f, 0.f);
-    vertices[4].uv = glm::vec2(1, 1);
-    vertices[5] = vertices[2];
-
-    D3D12_RESOURCE_DESC desc = {};
-    desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
-    desc.Width = sizeof(vertices);
-    desc.Height = 1;
-    desc.DepthOrArraySize = 1;
-    desc.MipLevels = 1;
-    desc.Format = DXGI_FORMAT_UNKNOWN;
-    desc.SampleDesc.Count = 1;
-    desc.SampleDesc.Quality = 0;
-    desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
-    desc.Flags = D3D12_RESOURCE_FLAG_NONE;
-
-    // Note: using upload heaps to transfer static data like vert buffers is
-    // not recommended. Every time the GPU needs it, the upload heap will be
-    // marshalled over. Please read up on Default Heap usage. An upload heap
-    // is used here for code simplicity and because there are very few verts
-    // to actually transfer.
-    D3D12_HEAP_PROPERTIES heap = device->GetCustomHeapProperties(
-        0,
-        D3D12_HEAP_TYPE_UPLOAD);
-    throw_error(device->CreateCommittedResource(
-        &heap,
-        D3D12_HEAP_FLAG_NONE,
-        &desc,
-        D3D12_RESOURCE_STATE_GENERIC_READ,
-        nullptr,
-        IID_PPV_ARGS(&vertex_buffer_)));
-
-    D3D12_RANGE read_range;
-    read_range.Begin = 0;
-    read_range.End = sizeof(vertices);
-    UINT8* buffer = nullptr;
-    throw_error(
-        vertex_buffer_->Map(0, &read_range, reinterpret_cast<void**>(&buffer)));
-
-    std::memcpy(buffer, vertices.data(), sizeof(vertices));
-    vertex_buffer_->Unmap(0, &read_range);
-
-    vertex_buffer_view_.BufferLocation = vertex_buffer_->GetGPUVirtualAddress();
-    vertex_buffer_view_.StrideInBytes = sizeof(Vertex);
-    vertex_buffer_view_.SizeInBytes = sizeof(vertices);
-  }
-
   CComPtr<ID3D12RootSignature> root_signature_;
   CComPtr<ID3D12PipelineState> pipeline_;
-  CComPtr<ID3D12Resource> vertex_buffer_;
-  D3D12_VERTEX_BUFFER_VIEW vertex_buffer_view_;
 };
 
 std::vector<CComPtr<IDXGIAdapter>> get_adapters() {
@@ -1510,12 +1438,15 @@ class Application : noncopyable {
     fragment_shaders.add("fullscreen_quad", "PSMain");
     fragment_shaders.add("fullscreen_quad", "PSMainInv");
     ShaderCache<VertexShaderHandle> vertex_shaders("vs_5_0");
+    vertex_shaders.add("fullscreen_quad", "VSMain");
 
     FullscreenPass copy_image(
         device,
+        vertex_shaders.find("fullscreen_quad", "VSMain"),
         fragment_shaders.find("fullscreen_quad", "PSMain"));
     FullscreenPass copy_image_inv_alpha(
         device,
+        vertex_shaders.find("fullscreen_quad", "VSMain"),
         fragment_shaders.find("fullscreen_quad", "PSMainInv"));
     Image face;
     load(face, resource_creator, "assets/textures/test.png");
@@ -1590,8 +1521,11 @@ class Application : noncopyable {
           0,
           nullptr);
 
-      render_context.descriptor(0, face.view());
-      copy_image.render(render_context, submission_context);
+      if(face.image()) {
+        render_context.descriptor(0, face.view());
+        copy_image.render(render_context, submission_context);
+      }
+
       render_context.descriptor(0, imgui.resource_view());
       copy_image_inv_alpha.render(render_context, submission_context);
 
