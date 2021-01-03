@@ -13,6 +13,7 @@
 # limitations under the License.
 cmake_minimum_required(VERSION 3.19)
 project(rndrx LANGUAGES CXX VERSION 0.0.1)
+set(CMAKE_CXX_STANDARD 17)
 
 include(FetchContent)
 FetchContent_Declare(
@@ -51,5 +52,12 @@ FetchContent_Declare(
     GIT_TAG        0.9.9.8
 )
 FetchContent_MakeAvailable(glm)
+
+FetchContent_Declare(
+    tinyobjloader
+    GIT_REPOSITORY https://github.com/tinyobjloader/tinyobjloader.git
+    GIT_TAG        9173980
+)
+FetchContent_MakeAvailable(tinyobjloader)
 
 add_subdirectory(dx12)
