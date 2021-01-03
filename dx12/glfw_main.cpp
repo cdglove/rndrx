@@ -1255,7 +1255,7 @@ class FullscreenPass : noncopyable {
     command_list->OMSetRenderTargets(1, &rc.target_view().cpu(), FALSE, nullptr);
     command_list->SetPipelineState(pipeline_);
     command_list->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-    command_list->DrawInstanced(6, 1, 0, 0);
+    command_list->DrawInstanced(3, 1, 0, 0);
   }
 
  private:

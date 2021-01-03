@@ -4,19 +4,13 @@ struct PSInput {
 };
 
 static const float4 positions[] = { 
-    float4(-1.f, 1.f, 0.f, 1.f),
-    float4(1.f, 1.f, 0.f, 1.f),
-    float4(-1.f, -1.f, 0.f, 1.f),
-    float4(1.f, 1.f, 0.f, 1.f),
-    float4(1.f, -1.f, 0.f, 1.f),
+    float4(-1.f, 3.f, 0.f, 1.f),
+    float4(3.f, -1.f, 0.f, 1.f),
     float4(-1.f, -1.f, 0.f, 1.f)};
 
 static const float2 uvs[] = {
-    float2(0, 0),
-    float2(1, 0),
-    float2(0, 1),
-    float2(1, 0),
-    float2(1, 1),
+    float2(0, -1.f),
+    float2(2, 1),
     float2(0, 1)};
     
 PSInput VSMain(uint id : SV_VertexID) {
