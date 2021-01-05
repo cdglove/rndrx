@@ -2064,7 +2064,7 @@ class Application : noncopyable {
 
   DepthImage create_depth_buffer(Device& d) const {
     D3D12_RESOURCE_DESC desc = {};
-    desc.MipLevels = 0;
+    desc.MipLevels = 1;
     desc.Format = DXGI_FORMAT_D32_FLOAT;
     desc.Width = window_.width();
     desc.Height = window_.height();
