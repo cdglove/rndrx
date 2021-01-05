@@ -16,20 +16,22 @@ struct PSInput {
   float2 uv : TEXCOORD;
 };
 
-static const float4 positions[] = { 
-    float4(-1.f, 3.f, 0.f, 1.f),
-    float4(3.f, -1.f, 0.f, 1.f),
-    float4(-1.f, -1.f, 0.f, 1.f)};
+cbuffer Scene : register(b0) {
+  float4x4 g_projection;
+  float4x4 g_view;
+  float4x4 g_model;
+};
 
-static const float2 uvs[] = {
-    float2(0, -1.f),
-    float2(2, 1),
-    float2(0, 1)};
-    
-PSInput VSMain(uint id : SV_VertexID) {
+// cbuffer Object : register(b1) {
+//     float4x4 g_model;
+// };
+
+PSInput VSMain(float3 position : POSITION, float2 uv : TEXCOORD) {
   PSInput result;
-  result.position = positions[id];
-  result.uv = uvs[id];
+  float4x4 view_projection = mul(g_projection, g_view);
+  float4x4 model_view_projection = mul(view_projection, g_model);
+  result.position = mul(model_view_projection, float4(position, 1.0));
+  result.uv = uv;
   return result;
 }
 
@@ -38,13 +40,6 @@ SamplerState g_sampler : register(s0);
 
 float4 PSMain(PSInput input)
     : SV_TARGET {
-    float4 colour = g_texture.Sample(g_sampler, input.uv);
-    return colour;
+  float4 colour = g_texture.Sample(g_sampler, input.uv);
+  return colour;
 }
-
-float4 PSMainInv(PSInput input)
-    : SV_TARGET {
-    float4 colour = g_texture.Sample(g_sampler, input.uv);
-    return float4(colour.xyz, 1 - colour.a);
-}
-

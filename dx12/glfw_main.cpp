@@ -11,18 +11,30 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-#define NOMINMAX            1
-#define WIN32_LEAN_AND_MEAN 1
-#include <Windows.h>
+#define NOMINMAX                     1
+#define WIN32_LEAN_AND_MEAN          1
+#define GLM_FORCE_RADIANS            1
+#define GLM_FORCE_DEPTH_ZERO_TO_ONE  1
+#define TINYOBJLOADER_IMPLEMENTATION 1
+#define STB_IMAGE_IMPLEMENTATION     1
+#define GLFW_EXPOSE_NATIVE_WIN32     1
 
+#include <GLFW/glfw3.h>
+#include <GLFW/glfw3native.h>
+#include <Windows.h>
 #include <atlbase.h>
 #include <d3d12.h>
 #include <d3dcompiler.h>
 #include <dxgi.h>
 #include <dxgi1_4.h>
+#include <stb_image.h>
+#include <tiny_obj_loader.h>
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <functional>
+#include <glm/gtc/matrix_transform.hpp>
+#include <glm/mat4x4.hpp>
 #include <glm/vec2.hpp>
 #include <glm/vec3.hpp>
 #include <glm/vec4.hpp>
@@ -36,19 +48,9 @@
 #include "imgui_impl_dx12.h"
 #include "imgui_impl_glfw.h"
 
-#define TINYOBJLOADER_IMPLEMENTATION
-#include <tiny_obj_loader.h>
-
-#define STB_IMAGE_IMPLEMENTATION
-#include <stb_image.h>
-
 #if RNDRX_ENABLE_DX12_DEBUG_LAYER
 #  include <dxgidebug.h>
 #endif
-
-#define GLFW_EXPOSE_NATIVE_WIN32 1
-#include <GLFW/glfw3.h>
-#include <GLFW/glfw3native.h>
 
 struct noncopyable {
   noncopyable() = default;
@@ -321,6 +323,11 @@ class Device : noncopyable {
             device_.ptr,
             D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV,
             D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE,
+            128)
+      , dsv_pool_(
+            device_.ptr,
+            D3D12_DESCRIPTOR_HEAP_TYPE_DSV,
+            D3D12_DESCRIPTOR_HEAP_FLAG_NONE,
             128) {
     create_graphics_queue();
     cache_heap_properties();
@@ -350,6 +357,10 @@ class Device : noncopyable {
 
   DescriptorPool& srv_pool() {
     return srv_pool_;
+  }
+
+  DescriptorPool& dsv_pool() {
+    return dsv_pool_;
   }
 
   D3D12_HEAP_PROPERTIES const& resource_heap() const {
@@ -405,113 +416,9 @@ class Device : noncopyable {
   IDXGIAdapter* adapter_ = nullptr;
   DescriptorPool rtv_pool_;
   DescriptorPool srv_pool_;
+  DescriptorPool dsv_pool_;
   D3D12_HEAP_PROPERTIES resource_heap_;
   D3D12_HEAP_PROPERTIES upload_heap_;
-};
-
-template <typename>
-class ShaderCache;
-class FragmentShaderHandle : noncopyable {
- public:
-  ID3DBlob* code() const {
-    return code_;
-  }
-
- private:
-  friend class ShaderCache<FragmentShaderHandle>;
-  FragmentShaderHandle(ID3DBlob* shader)
-      : code_(shader) {
-  }
-  ID3DBlob* code_;
-};
-
-class VertexShaderHandle : noncopyable {
- public:
-  ID3DBlob* code() const {
-    return code_;
-  }
-
- private:
-  friend class ShaderCache<VertexShaderHandle>;
-  VertexShaderHandle(ID3DBlob* shader)
-      : code_(shader) {
-  }
-  ID3DBlob* code_;
-};
-
-template <typename ShaderHandle>
-class ShaderCache {
- public:
-  ShaderCache(std::string shader_model)
-      : shader_model_(std::move(shader_model)) {
-  }
-  void add(std::string file, std::string entry) {
-#if RNDRX_ENABLE_SHADER_DEBUGGING
-    // Enable better shader debugging with the graphics debugging tools.
-    unsigned compile_flags = D3DCOMPILE_DEBUG | D3DCOMPILE_SKIP_OPTIMIZATION;
-#else
-    unsigned compile_flags = 0;
-#endif
-
-    std::string source;
-    std::string path = "assets/shaders/";
-    path += file + ".hlsl";
-    std::ifstream fin(path, std::ios::binary);
-    fin.seekg(0, std::ios::end);
-    auto len = fin.tellg();
-    fin.seekg(0, std::ios::beg);
-    source.resize(len);
-    fin.read(source.data(), len);
-    CComPtr<ID3DBlob> resource;
-    throw_error(D3DCompile(
-        source.data(),
-        source.size(),
-        nullptr,
-        nullptr,
-        nullptr,
-        entry.c_str(),
-        shader_model_.c_str(),
-        compile_flags,
-        0,
-        &resource,
-        nullptr));
-
-    shaders_.emplace(
-        ShaderDef(std::move(file), std::move(entry)),
-        std::move(resource));
-  }
-
-  ShaderHandle find(std::string file, std::string entry) {
-    auto iter = shaders_.find(ShaderDef(std::move(file), std::move(entry)));
-    if(iter == shaders_.end()) {
-      return nullptr;
-    }
-    return iter->second.p;
-  }
-
- private:
-  struct ShaderDef {
-    ShaderDef(std::string f, std::string e)
-        : file(std::move(f))
-        , entry(std::move(e)) {
-    }
-
-    std::string file;
-    std::string entry;
-    friend bool operator==(ShaderDef const& a, ShaderDef const& b) {
-      return a.file == b.file && a.entry == b.entry;
-    }
-  };
-
-  struct HashShaderDef {
-    std::size_t operator()(ShaderDef const& sd) const {
-      auto hasher = std::hash<std::string>();
-      return hasher(sd.file) ^ hasher(sd.entry);
-    }
-  };
-
-  std::unordered_map<ShaderDef, CComPtr<ID3DBlob>, HashShaderDef> shaders_;
-  std::string shader_model_;
 };
 
 class SubmissionContext : noncopyable {
@@ -560,65 +467,6 @@ class SubmissionContext : noncopyable {
   ID3D12GraphicsCommandList* command_list_;
 };
 
-class RenderContext : noncopyable {
- public:
-  void target_image(ID3D12Resource* image) {
-    target_image_ = image;
-  }
-
-  ID3D12Resource* target_image() const {
-    return target_image_;
-  }
-
-  void target_view(DescriptorHandle const& image_view) {
-    target_view_ = &image_view;
-  }
-
-  DescriptorHandle const& target_view() const {
-    return *target_view_;
-  }
-
-  void viewport(int width, int height) {
-    viewport_.Width = width;
-    viewport_.Height = height;
-    viewport_.TopLeftY = 0.0f;
-    viewport_.TopLeftX = 0.0f;
-    viewport_.TopLeftY = 0.0f;
-    viewport_.MinDepth = D3D12_MIN_DEPTH;
-    viewport_.MaxDepth = D3D12_MAX_DEPTH;
-  }
-
-  D3D12_VIEWPORT const& viewport() const {
-    return viewport_;
-  }
-
-  void scissor(int left, int right, int top, int bottom) {
-    scissor_.left = left;
-    scissor_.right = right;
-    scissor_.top = top;
-    scissor_.bottom = bottom;
-  }
-
-  D3D12_RECT const& scissor() const {
-    return scissor_;
-  }
-
-  void descriptor(int idx, DescriptorHandle const& handle) {
-    descriptor_ = &handle;
-  }
-
-  DescriptorHandle const& descriptor(int idx) const {
-    return *descriptor_;
-  }
-
- private:
-  DescriptorHandle const* target_view_ = nullptr;
-  ID3D12Resource* target_image_ = nullptr;
-  DescriptorHandle const* descriptor_ = nullptr;
-  D3D12_VIEWPORT viewport_;
-  D3D12_RECT scissor_;
-};
-
 class ResourceCreator : noncopyable {
  public:
   ResourceCreator(Device& device)
@@ -628,10 +476,15 @@ class ResourceCreator : noncopyable {
     create_fence();
   }
 
-  CComPtr<ID3D12Resource> create_image_resource(int width, int height, int channels) {
+  ~ResourceCreator() {
+    if(copy_fence_event_) {
+      CloseHandle(copy_fence_event_);
+    }
+  }
+
+  CComPtr<ID3D12Resource> create_image_resource(int width, int height) {
     D3D12_RESOURCE_DESC desc = {};
     desc.MipLevels = 1;
-    // Should read the channels to dictate format
     desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
     desc.Width = width;
     desc.Height = height;
@@ -651,6 +504,33 @@ class ResourceCreator : noncopyable {
         IID_PPV_ARGS(&image)));
 
     return image;
+  }
+
+  CComPtr<ID3D12Resource> create_vertex_buffer_resource(
+      std::size_t vertex_count,
+      std::size_t vertex_size) {
+    D3D12_RESOURCE_DESC desc = {};
+    desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+    desc.Width = vertex_count * vertex_size;
+    desc.Height = 1;
+    desc.DepthOrArraySize = 1;
+    desc.MipLevels = 1;
+    desc.Format = DXGI_FORMAT_UNKNOWN;
+    desc.SampleDesc.Count = 1;
+    desc.SampleDesc.Quality = 0;
+    desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+    desc.Flags = D3D12_RESOURCE_FLAG_NONE;
+
+    CComPtr<ID3D12Resource> vertex_buffer;
+    throw_error(device_.get()->CreateCommittedResource(
+        &device_.resource_heap(),
+        D3D12_HEAP_FLAG_NONE,
+        &desc,
+        D3D12_RESOURCE_STATE_COPY_DEST,
+        nullptr,
+        IID_PPV_ARGS(&vertex_buffer)));
+
+    return vertex_buffer;
   }
 
   void reset() {
@@ -681,11 +561,27 @@ class ResourceCreator : noncopyable {
     return device_;
   }
 
-  void finalise(SubmissionContext& sc) {
+  void finalise_ready(SubmissionContext& sc) {
     auto flush_value = copy_fence_->GetCompletedValue();
     while(!finalisation_queue_.empty() &&
-          finalisation_queue_.back().fence_value <= flush_value) {
-      finalisation_queue_.back().fn(*this, sc);
+          finalisation_queue_.front().fence_value <= flush_value) {
+      finalisation_queue_.front().fn(*this, sc);
+      finalisation_queue_.pop();
+    }
+  }
+
+  void finalise_all(SubmissionContext& sc) {
+    auto completed_value = copy_fence_->GetCompletedValue();
+    if(completed_value < current_fence_value_) {
+      throw_error(copy_fence_->SetEventOnCompletion(
+          current_fence_value_,
+          copy_fence_event_));
+      WaitForSingleObject(copy_fence_event_, INFINITE);
+    }
+
+    while(!finalisation_queue_.empty() &&
+          finalisation_queue_.front().fence_value <= completed_value) {
+      finalisation_queue_.front().fn(*this, sc);
       finalisation_queue_.pop();
     }
   }
@@ -700,7 +596,7 @@ class ResourceCreator : noncopyable {
     auto source_desc = destination->GetDesc();
     D3D12_RESOURCE_DESC desc = {};
     desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
-    desc.Width = source_desc.Width * source_desc.Height * 4;
+    desc.Width = required_upload_size;
     desc.Format = DXGI_FORMAT_UNKNOWN;
     desc.Alignment = 0;
     desc.Flags = D3D12_RESOURCE_FLAG_NONE;
@@ -772,7 +668,7 @@ class ResourceCreator : noncopyable {
 
     D3D12_RANGE read_range;
     read_range.Begin = 0;
-    read_range.End = size;
+    read_range.End = 0;
     throw_error(
         staging->Map(0, &read_range, reinterpret_cast<void**>(&staging_mem)));
     for(int i = 0; i < count; ++i) {
@@ -884,6 +780,10 @@ class ResourceCreator : noncopyable {
     throw_error(
         device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&copy_fence_)));
     current_fence_value_ = 1;
+    copy_fence_event_ = CreateEvent(nullptr, FALSE, FALSE, nullptr);
+    if(!copy_fence_event_) {
+      throw_error(HRESULT_FROM_WIN32(GetLastError()));
+    }
   }
 
   Device& device_;
@@ -891,6 +791,7 @@ class ResourceCreator : noncopyable {
   CComPtr<ID3D12GraphicsCommandList> command_list_;
   CComPtr<ID3D12CommandQueue> copy_queue_;
   CComPtr<ID3D12Fence> copy_fence_;
+  HANDLE copy_fence_event_ = nullptr;
   std::uint64_t current_fence_value_ = 0;
   struct FinalisationNode {
     template <typename Fn>
@@ -905,10 +806,182 @@ class ResourceCreator : noncopyable {
   std::queue<FinalisationNode> finalisation_queue_;
 };
 
+template <typename>
+class ShaderCache;
+class FragmentShaderHandle : noncopyable {
+ public:
+  ID3DBlob* code() const {
+    return code_;
+  }
+
+ private:
+  friend class ShaderCache<FragmentShaderHandle>;
+  FragmentShaderHandle(ID3DBlob* shader)
+      : code_(shader) {
+  }
+  ID3DBlob* code_;
+};
+
+class VertexShaderHandle : noncopyable {
+ public:
+  ID3DBlob* code() const {
+    return code_;
+  }
+
+ private:
+  friend class ShaderCache<VertexShaderHandle>;
+  VertexShaderHandle(ID3DBlob* shader)
+      : code_(shader) {
+  }
+  ID3DBlob* code_;
+};
+
+template <typename ShaderHandle>
+class ShaderCache {
+ public:
+  ShaderCache(std::string shader_model)
+      : shader_model_(std::move(shader_model)) {
+  }
+  void add(std::string file, std::string entry) {
+#if RNDRX_ENABLE_SHADER_DEBUGGING
+    // Enable better shader debugging with the graphics debugging tools.
+    unsigned compile_flags = D3DCOMPILE_DEBUG | D3DCOMPILE_SKIP_OPTIMIZATION;
+#else
+    unsigned compile_flags = 0;
+#endif
+
+    std::string source;
+    std::string path = "assets/shaders/";
+    path += file + ".hlsl";
+    std::ifstream fin(path, std::ios::binary);
+    fin.seekg(0, std::ios::end);
+    auto len = fin.tellg();
+    fin.seekg(0, std::ios::beg);
+    source.resize(len);
+    fin.read(source.data(), len);
+    CComPtr<ID3DBlob> resource;
+    throw_error(D3DCompile(
+        source.data(),
+        source.size(),
+        nullptr,
+        nullptr,
+        nullptr,
+        entry.c_str(),
+        shader_model_.c_str(),
+        compile_flags,
+        0,
+        &resource,
+        nullptr));
+
+    shaders_.emplace(
+        ShaderDef(std::move(file), std::move(entry)),
+        std::move(resource));
+  }
+
+  ShaderHandle find(std::string file, std::string entry) {
+    auto iter = shaders_.find(ShaderDef(std::move(file), std::move(entry)));
+    if(iter == shaders_.end()) {
+      return nullptr;
+    }
+    return iter->second.p;
+  }
+
+ private:
+  struct ShaderDef {
+    ShaderDef(std::string f, std::string e)
+        : file(std::move(f))
+        , entry(std::move(e)) {
+    }
+
+    std::string file;
+    std::string entry;
+    friend bool operator==(ShaderDef const& a, ShaderDef const& b) {
+      return a.file == b.file && a.entry == b.entry;
+    }
+  };
+
+  struct HashShaderDef {
+    std::size_t operator()(ShaderDef const& sd) const {
+      auto hasher = std::hash<std::string>();
+      return hasher(sd.file) ^ hasher(sd.entry);
+    }
+  };
+
+  std::unordered_map<ShaderDef, CComPtr<ID3DBlob>, HashShaderDef> shaders_;
+  std::string shader_model_;
+};
+
+class ShaderData {
+ public:
+  ShaderData(Device& d, std::size_t size) {
+    create_constant_buffer(d, size);
+    create_view(d, size);
+
+    D3D12_RANGE read_range = {0, 0};
+    throw_error(
+        constant_buffer_->Map(0, &read_range, reinterpret_cast<void**>(&ptr_)));
+  }
+
+  DescriptorHandle const& view() const {
+    return view_;
+  }
+
+  void write(void* source, std::size_t size) {
+    std::memcpy(ptr_, source, size);
+  }
+
+ private:
+  void create_constant_buffer(Device& d, std::size_t size) {
+    auto* device = d.get();
+    D3D12_RESOURCE_DESC desc = {};
+    desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+    desc.Width = size;
+    desc.Height = 1;
+    desc.DepthOrArraySize = 1;
+    desc.MipLevels = 1;
+    desc.Format = DXGI_FORMAT_UNKNOWN;
+    desc.SampleDesc.Count = 1;
+    desc.SampleDesc.Quality = 0;
+    desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+    desc.Flags = D3D12_RESOURCE_FLAG_NONE;
+    throw_error(device->CreateCommittedResource(
+        &d.upload_heap(),
+        D3D12_HEAP_FLAG_NONE,
+        &desc,
+        D3D12_RESOURCE_STATE_GENERIC_READ,
+        nullptr,
+        IID_PPV_ARGS(&constant_buffer_)));
+  }
+
+  void create_view(Device& d, std::size_t size) {
+    auto* device = d.get();
+    D3D12_CONSTANT_BUFFER_VIEW_DESC desc = {};
+    desc.BufferLocation = constant_buffer_->GetGPUVirtualAddress();
+    desc.SizeInBytes = size;
+    view_ = d.srv_pool().allocate();
+    device->CreateConstantBufferView(&desc, view_.cpu());
+  }
+
+  CComPtr<ID3D12Resource> constant_buffer_;
+  DescriptorHandle view_;
+  void* ptr_;
+};
+
 class Image : noncopyable {
  public:
   Image() = default;
-  ID3D12Resource* image() const {
+  Image(CComPtr<ID3D12Resource> image, DescriptorHandle&& view)
+      : image_(std::move(image))
+      , view_(std::move(view)) {
+  }
+
+  Image(Device& d, CComPtr<ID3D12Resource> image)
+      : image_(std::move(image))
+      , view_(d.srv_pool().allocate()) {
+    d.get()->CreateShaderResourceView(image_, nullptr, view_.cpu());
+  }
+
+  ID3D12Resource* resource() const {
     return image_;
   }
 
@@ -920,6 +993,178 @@ class Image : noncopyable {
   friend void load(Image&, ResourceCreator&, char const*);
   CComPtr<ID3D12Resource> image_;
   DescriptorHandle view_;
+};
+
+class RenderableImage : noncopyable {
+ public:
+  RenderableImage() = default;
+  RenderableImage(Device& d, Image&& image)
+      : image_(std::move(image))
+      , target_view_(d.rtv_pool().allocate()) {
+    d.get()->CreateRenderTargetView(image_.resource(), nullptr, target_view_.cpu());
+  }
+
+  RenderableImage(Device& d, CComPtr<ID3D12Resource> image)
+      : image_(d, std::move(image))
+      , target_view_(d.rtv_pool().allocate()) {
+    d.get()->CreateRenderTargetView(image_.resource(), nullptr, target_view_.cpu());
+  }
+
+  RenderableImage(
+      CComPtr<ID3D12Resource> image,
+      DescriptorHandle&& view,
+      DescriptorHandle&& target_view)
+      : image_(std::move(image), std::move(view))
+      , target_view_(std::move(target_view)) {
+  }
+
+  ID3D12Resource* resource() const {
+    return image_.resource();
+  }
+
+  Image const& image() const {
+    return image_;
+  }
+
+  DescriptorHandle const& view() const {
+    return target_view_;
+  }
+
+ private:
+  Image image_;
+  DescriptorHandle target_view_;
+};
+
+class DepthImage : noncopyable {
+ public:
+  DepthImage() = default;
+
+  DepthImage(Device& d, CComPtr<ID3D12Resource> image)
+      : image_(std::move(image))
+      , ds_view_(d.dsv_pool().allocate()) {
+    // D3D12_DEPTH_STENCIL_VIEW_DESC desc = {};
+    // desc.Format = DXGI_FORMAT_D32_FLOAT;
+    // desc.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2D;
+    // desc.Flags = D3D12_DSV_FLAG_NONE;
+    d.get()->CreateDepthStencilView(image_, nullptr, ds_view_.cpu());
+  }
+
+  DepthImage(CComPtr<ID3D12Resource> image, DescriptorHandle&& ds_view)
+      : image_(std::move(image))
+      , ds_view_(std::move(ds_view)) {
+  }
+
+  ID3D12Resource* resource() const {
+    return image_;
+  }
+
+  DescriptorHandle const& view() const {
+    return ds_view_;
+  }
+
+ private:
+  CComPtr<ID3D12Resource> image_;
+  DescriptorHandle ds_view_;
+};
+
+class Model : noncopyable {
+ public:
+  Model() = default;
+  D3D12_VERTEX_BUFFER_VIEW const& view() const {
+    return view_;
+  }
+
+  std::size_t vertex_count() const {
+    return view_.SizeInBytes / view_.StrideInBytes;
+  }
+
+ private:
+  friend void load(Model&, ResourceCreator&, char const*);
+  CComPtr<ID3D12Resource> vertex_buffer_;
+  D3D12_VERTEX_BUFFER_VIEW view_;
+};
+
+class RenderContext : noncopyable {
+ public:
+  void target(RenderableImage const& target) {
+    target_ = &target;
+  }
+
+  void depth(DepthImage const& depth) {
+    depth_ = &depth;
+  }
+
+  void viewport(int width, int height) {
+    viewport_.Width = width;
+    viewport_.Height = height;
+    viewport_.TopLeftY = 0.0f;
+    viewport_.TopLeftX = 0.0f;
+    viewport_.TopLeftY = 0.0f;
+    viewport_.MinDepth = D3D12_MIN_DEPTH;
+    viewport_.MaxDepth = D3D12_MAX_DEPTH;
+  }
+
+  void scissor(int left, int right, int top, int bottom) {
+    scissor_.left = left;
+    scissor_.right = right;
+    scissor_.top = top;
+    scissor_.bottom = bottom;
+  }
+
+  void begin_rendering(SubmissionContext& sc, glm::vec4 const& clear_colour) {
+    auto* command_list = sc.command_list();
+    D3D12_RESOURCE_BARRIER barrier = {};
+    barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+    barrier.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
+    barrier.Transition.pResource = target_->resource();
+    barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+    barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_PRESENT;
+    barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_RENDER_TARGET;
+    command_list->ResourceBarrier(1, &barrier);
+
+    command_list->RSSetViewports(1, &viewport_);
+    command_list->RSSetScissorRects(1, &scissor_);
+    command_list->OMSetRenderTargets(
+        1,
+        &target_->view().cpu(),
+        FALSE,
+        &depth_->view().cpu());
+
+    command_list->ClearRenderTargetView(
+        target_->view().cpu(),
+        &clear_colour[0],
+        0,
+        nullptr);
+
+    if(depth_) {
+      command_list->ClearDepthStencilView(
+          depth_->view().cpu(),
+          D3D12_CLEAR_FLAG_DEPTH,
+          1.f,
+          0,
+          0,
+          nullptr);
+    }
+
+  }
+
+  void finish_rendering(SubmissionContext& sc) {
+    auto* command_list = sc.command_list();
+    D3D12_RESOURCE_BARRIER barrier = {};
+    barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+    barrier.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
+    barrier.Transition.pResource = target_->resource();
+    barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+    barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_RENDER_TARGET;
+    barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_PRESENT;
+    command_list->ResourceBarrier(1, &barrier);
+  }
+
+ private:
+  RenderableImage const* target_ = nullptr;
+  DepthImage const* depth_ = nullptr;
+  D3D12_VIEWPORT viewport_;
+  D3D12_RECT scissor_;
 };
 
 struct StbiImageFree {
@@ -934,13 +1179,13 @@ void load(Image& image, ResourceCreator& rc, char const* path) {
   std::unique_ptr<stbi_uc, StbiImageFree> pixels(
       stbi_load(path, &width, &height, &channels, STBI_rgb_alpha));
 
-  auto image_resource = rc.create_image_resource(width, height, channels);
+  auto image_resource = rc.create_image_resource(width, height);
   auto staging_resouce = rc.create_staging_resource(image_resource);
 
   D3D12_SUBRESOURCE_DATA texture_data = {};
   texture_data.pData = pixels.get();
-  texture_data.RowPitch = width * channels;
-  texture_data.SlicePitch = width * height * channels;
+  texture_data.RowPitch = width * 4;
+  texture_data.SlicePitch = width * height * 4;
   rc.update_subresources(image_resource, staging_resouce, 0, 0, 1, &texture_data);
   rc.on_finalise([&image,
                   image_resource = std::move(image_resource),
@@ -959,6 +1204,72 @@ void load(Image& image, ResourceCreator& rc, char const* path) {
     auto* device = rc.device().get();
     device->CreateShaderResourceView(image_resource, nullptr, image.view_.cpu());
     image.image_ = std::move(image_resource);
+  });
+}
+
+void load(Model& model, ResourceCreator& rc, char const* path) {
+  tinyobj::attrib_t attrib;
+  std::vector<tinyobj::shape_t> shapes;
+  std::vector<tinyobj::material_t> materials;
+  std::string warn, err;
+
+  if(!tinyobj::LoadObj(&attrib, &shapes, &materials, &warn, &err, path)) {
+    throw_error(-1);
+  }
+
+  // We only support one vertex format for now.
+  struct Vertex {
+    glm::vec3 position;
+    glm::vec2 uv;
+  };
+
+  std::vector<Vertex> vertices;
+  // std::vector<std::uint32_t> indices;
+  for(auto const& shape : shapes) {
+    for(auto const& index : shape.mesh.indices) {
+      vertices.emplace_back();
+      Vertex& vertex = vertices.back();
+      vertex.position = {
+          attrib.vertices[3 * index.vertex_index + 0],
+          attrib.vertices[3 * index.vertex_index + 1],
+          attrib.vertices[3 * index.vertex_index + 2]};
+      vertex.uv = {
+          attrib.texcoords[2 * index.texcoord_index + 0],
+          // obj format puts 0, 0 at bottom left, need to flip it.
+          1.f - attrib.texcoords[2 * index.texcoord_index + 1]};
+      // Skip the index buffer for now.
+      // indices.push_back(indices.size());
+    }
+  }
+
+  auto vertex_buffer = rc.create_vertex_buffer_resource(
+      vertices.size(),
+      sizeof(Vertex));
+  auto staging_resource = rc.create_staging_resource(vertex_buffer);
+
+  D3D12_SUBRESOURCE_DATA vertex_data = {};
+  vertex_data.pData = vertices.data();
+  vertex_data.RowPitch = vertices.size() * sizeof(Vertex);
+  vertex_data.SlicePitch = vertex_data.RowPitch;
+  rc.update_subresources(vertex_buffer, staging_resource, 0, 0, 1, &vertex_data);
+  rc.on_finalise([&model,
+                  vertex_buffer = std::move(vertex_buffer),
+                  staging_resource = std::move(staging_resource),
+                  data_size = vertices.size() * sizeof(Vertex)](
+                     ResourceCreator& rc,
+                     SubmissionContext& sc) mutable {
+    D3D12_RESOURCE_BARRIER barrier = {};
+    barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+    barrier.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
+    barrier.Transition.pResource = vertex_buffer;
+    barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+    barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_DEST;
+    barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_VERTEX_AND_CONSTANT_BUFFER;
+    sc.command_list()->ResourceBarrier(1, &barrier);
+    model.view_.BufferLocation = vertex_buffer->GetGPUVirtualAddress();
+    model.view_.StrideInBytes = sizeof(Vertex);
+    model.view_.SizeInBytes = data_size;
+    model.vertex_buffer_ = std::move(vertex_buffer);
   });
 }
 
@@ -991,8 +1302,8 @@ class Swapchain : noncopyable {
     return swapchain_->GetCurrentBackBufferIndex();
   }
 
-  DescriptorHandle const& image_descriptor(int idx) const {
-    return image_view_[idx];
+  RenderableImage const& target(int idx) const {
+    return target_[idx];
   }
 
   void present(SubmissionContext& sc) {
@@ -1000,10 +1311,6 @@ class Swapchain : noncopyable {
     UINT64 signal_value = ++current_present_fence_value_;
     throw_error(device_.graphics_queue()->Signal(present_fence_, signal_value));
     sc.present_fence_value(signal_value);
-  }
-
-  ID3D12Resource* image(int idx) const {
-    return image_[idx];
   }
 
   void wait(SubmissionContext& sc) {
@@ -1034,12 +1341,11 @@ class Swapchain : noncopyable {
     swapchain_->GetDesc1(&desc);
     desc.Width = width;
     desc.Height = height;
-
-    for(int i = 0; i < num_images_; ++i) {
-      image_[i] = nullptr;
+    swapchain_ = nullptr;
+    for(RenderableImage& i : target_) {
+      i = {};
     }
 
-    swapchain_ = nullptr;
     CloseHandle(swapchain_waitable_);
     create_swapchain_impl(desc);
     create_images();
@@ -1083,13 +1389,11 @@ class Swapchain : noncopyable {
   }
 
   void create_images() {
-    device_.rtv_pool().allocate(num_images_, image_view_.begin());
     auto* device = device_.get();
     for(int i = 0; i < num_images_; ++i) {
       CComPtr<ID3D12Resource> image;
       swapchain_->GetBuffer(i, IID_PPV_ARGS(&image));
-      device->CreateRenderTargetView(image, nullptr, image_view_[i].cpu());
-      image_[i] = std::move(image);
+      target_[i] = {device_, std::move(image)};
     }
   }
 
@@ -1115,8 +1419,7 @@ class Swapchain : noncopyable {
   UINT64 current_present_fence_value_ = 0;
   HANDLE present_fence_event_ = nullptr;
   HANDLE swapchain_waitable_ = nullptr;
-  std::array<DescriptorHandle, 3> image_view_ = {};
-  std::array<CComPtr<ID3D12Resource>, 3> image_;
+  std::array<RenderableImage, 3> target_;
 };
 
 class ImGuiState : noncopyable {
@@ -1160,7 +1463,6 @@ class ImGuiState : noncopyable {
   }
 
   void create_image(int width, int height) {
-    image_ = nullptr;
     D3D12_RESOURCE_DESC desc = {};
     desc.MipLevels = 1;
     desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
@@ -1178,18 +1480,16 @@ class ImGuiState : noncopyable {
     clear.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
     std::copy(&clear_colour_.x, &clear_colour_.x + 4, &clear.Color[0]);
 
+    CComPtr<ID3D12Resource> image;
     throw_error(device->CreateCommittedResource(
         &device_.resource_heap(),
         D3D12_HEAP_FLAG_NONE,
         &desc,
         D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
         &clear,
-        IID_PPV_ARGS(&image_)));
+        IID_PPV_ARGS(&image)));
 
-    image_view_ = device_.rtv_pool().allocate();
-    device->CreateRenderTargetView(image_, nullptr, image_view_.cpu());
-    resource_view_ = device_.srv_pool().allocate();
-    device->CreateShaderResourceView(image_, nullptr, resource_view_.cpu());
+    target_ = RenderableImage(device_, std::move(image));
   }
 
   void update() {
@@ -1206,14 +1506,15 @@ class ImGuiState : noncopyable {
     D3D12_RESOURCE_BARRIER barrier = {};
     barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
     barrier.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
-    barrier.Transition.pResource = image_;
+    barrier.Transition.pResource = target_.resource();
     barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
     barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
     barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_RENDER_TARGET;
     command_list->ResourceBarrier(1, &barrier);
 
-    command_list->ClearRenderTargetView(image_view_.cpu(), &clear_colour_.x, 0, nullptr);
-    command_list->OMSetRenderTargets(1, &image_view_.cpu(), FALSE, nullptr);
+    command_list->ClearRenderTargetView(target_.view().cpu(), &clear_colour_.x, 0, nullptr);
+
+    command_list->OMSetRenderTargets(1, &target_.view().cpu(), FALSE, nullptr);
     ImGui_ImplDX12_RenderDrawData(ImGui::GetDrawData(), command_list);
 
     barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_RENDER_TARGET;
@@ -1221,24 +1522,23 @@ class ImGuiState : noncopyable {
     command_list->ResourceBarrier(1, &barrier);
   }
 
-  DescriptorHandle const& resource_view() {
-    return resource_view_;
+  RenderableImage const& target() const {
+    return target_;
   }
 
  private:
   Device& device_;
-  DescriptorHandle image_view_;
-  DescriptorHandle resource_view_;
+  DescriptorHandle render_view_;
   DescriptorHandle font_view_;
-  CComPtr<ID3D12Resource> image_;
   bool show_demo_window_ = false;
   bool show_another_window_ = false;
   glm::vec4 clear_colour_ = {0.f, 0.f, 0.f, 1.f};
+  RenderableImage target_;
 };
 
-class FullscreenPass : noncopyable {
+class ForwardDraw : noncopyable {
  public:
-  FullscreenPass(
+  ForwardDraw(
       Device& d,
       VertexShaderHandle const& vertex_shader,
       FragmentShaderHandle const& pixel_shader) {
@@ -1246,24 +1546,192 @@ class FullscreenPass : noncopyable {
     create_pipeline(d, vertex_shader, pixel_shader);
   }
 
-  void render(RenderContext& rc, SubmissionContext& sc) {
+  void draw(
+      SubmissionContext& sc,
+      Model const& model,
+      Image const& image,
+      ShaderData const& shader_data) {
     auto* command_list = sc.command_list();
     command_list->SetGraphicsRootSignature(root_signature_);
-    command_list->SetGraphicsRootDescriptorTable(0, rc.descriptor(0).gpu());
-    command_list->RSSetViewports(1, &rc.viewport());
-    command_list->RSSetScissorRects(1, &rc.scissor());
-    command_list->OMSetRenderTargets(1, &rc.target_view().cpu(), FALSE, nullptr);
+    command_list->SetGraphicsRootDescriptorTable(0, shader_data.view().gpu());
+    command_list->SetGraphicsRootDescriptorTable(1, image.view().gpu());
+    command_list->SetPipelineState(pipeline_);
+    command_list->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    command_list->IASetVertexBuffers(0, 1, &model.view());
+    command_list->DrawInstanced(model.vertex_count(), 1, 0, 0);
+  }
+
+ private:
+  void create_root_signature(Device& d) {
+    std::array<D3D12_DESCRIPTOR_RANGE, 2> descriptor_range;
+    descriptor_range[0].NumDescriptors = 1;
+    descriptor_range[0].BaseShaderRegister = 0;
+    descriptor_range[0].OffsetInDescriptorsFromTableStart = 0;
+    descriptor_range[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_CBV;
+    descriptor_range[0].RegisterSpace = 0;
+    descriptor_range[1].NumDescriptors = 1;
+    descriptor_range[1].BaseShaderRegister = 0;
+    descriptor_range[1].OffsetInDescriptorsFromTableStart = 0;
+    descriptor_range[1].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+    descriptor_range[1].RegisterSpace = 0;
+
+    std::array<D3D12_ROOT_DESCRIPTOR_TABLE, 2> descriptor_table;
+    descriptor_table[0].NumDescriptorRanges = 1;
+    descriptor_table[0].pDescriptorRanges = &descriptor_range[0];
+    descriptor_table[1].NumDescriptorRanges = 1;
+    descriptor_table[1].pDescriptorRanges = &descriptor_range[1];
+
+    std::array<D3D12_ROOT_PARAMETER, 2> root_parameters = {};
+    root_parameters[0].DescriptorTable = descriptor_table[0];
+    root_parameters[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_VERTEX;
+    root_parameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    root_parameters[1].DescriptorTable = descriptor_table[1];
+    root_parameters[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+    root_parameters[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+
+    D3D12_STATIC_SAMPLER_DESC sampler = {};
+    sampler.Filter = D3D12_FILTER_MIN_MAG_MIP_POINT;
+    sampler.AddressU = D3D12_TEXTURE_ADDRESS_MODE_BORDER;
+    sampler.AddressV = D3D12_TEXTURE_ADDRESS_MODE_BORDER;
+    sampler.AddressW = D3D12_TEXTURE_ADDRESS_MODE_BORDER;
+    sampler.MipLODBias = 0;
+    sampler.MaxAnisotropy = 0;
+    sampler.ComparisonFunc = D3D12_COMPARISON_FUNC_NEVER;
+    sampler.BorderColor = D3D12_STATIC_BORDER_COLOR_TRANSPARENT_BLACK;
+    sampler.MinLOD = 0.0f;
+    sampler.MaxLOD = D3D12_FLOAT32_MAX;
+    sampler.ShaderRegister = 0;
+    sampler.RegisterSpace = 0;
+    sampler.ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+
+    D3D12_ROOT_SIGNATURE_DESC desc = {};
+    desc.Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
+    desc.NumStaticSamplers = 1;
+    desc.pStaticSamplers = &sampler;
+    desc.NumParameters = root_parameters.size();
+    desc.pParameters = root_parameters.data();
+    CComPtr<ID3DBlob> signature;
+    CComPtr<ID3DBlob> error;
+    auto* device = d.get();
+    throw_error(D3D12SerializeRootSignature(
+        &desc,
+        D3D_ROOT_SIGNATURE_VERSION_1,
+        &signature,
+        &error));
+    throw_error(device->CreateRootSignature(
+        0,
+        signature->GetBufferPointer(),
+        signature->GetBufferSize(),
+        IID_PPV_ARGS(&root_signature_)));
+  }
+
+  void create_pipeline(
+      Device& d,
+      VertexShaderHandle const& vs,
+      FragmentShaderHandle const& fs) {
+    // We currently only support one vertex format.
+    // clang-format off
+    std::array<D3D12_INPUT_ELEMENT_DESC, 2> vertex_layout {{
+        {"POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+        {"TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+    }};
+    // clang-format on
+
+    D3D12_SHADER_BYTECODE vs_bytecode = {};
+    vs_bytecode.pShaderBytecode = vs.code()->GetBufferPointer();
+    vs_bytecode.BytecodeLength = vs.code()->GetBufferSize();
+
+    D3D12_SHADER_BYTECODE ps_bytecode = {};
+    ps_bytecode.pShaderBytecode = fs.code()->GetBufferPointer();
+    ps_bytecode.BytecodeLength = fs.code()->GetBufferSize();
+
+    D3D12_RASTERIZER_DESC raster_desc = {};
+    raster_desc.FillMode = D3D12_FILL_MODE_SOLID;
+    raster_desc.CullMode = D3D12_CULL_MODE_NONE;
+    raster_desc.FrontCounterClockwise = FALSE;
+    raster_desc.DepthBias = D3D12_DEFAULT_DEPTH_BIAS;
+    raster_desc.DepthBiasClamp = D3D12_DEFAULT_DEPTH_BIAS_CLAMP;
+    raster_desc.SlopeScaledDepthBias = D3D12_DEFAULT_SLOPE_SCALED_DEPTH_BIAS;
+    raster_desc.DepthClipEnable = TRUE;
+    raster_desc.MultisampleEnable = FALSE;
+    raster_desc.AntialiasedLineEnable = FALSE;
+    raster_desc.ForcedSampleCount = 0;
+    raster_desc.ConservativeRaster = D3D12_CONSERVATIVE_RASTERIZATION_MODE_OFF;
+
+    D3D12_BLEND_DESC blend_desc = {};
+    blend_desc.AlphaToCoverageEnable = FALSE;
+    blend_desc.IndependentBlendEnable = FALSE;
+    blend_desc.RenderTarget[0].BlendEnable = TRUE;
+    blend_desc.RenderTarget[0].LogicOpEnable = FALSE;
+    blend_desc.RenderTarget[0].SrcBlend = D3D12_BLEND_SRC_ALPHA;
+    blend_desc.RenderTarget[0].DestBlend = D3D12_BLEND_INV_SRC_ALPHA;
+    blend_desc.RenderTarget[0].BlendOp = D3D12_BLEND_OP_ADD;
+    blend_desc.RenderTarget[0].SrcBlendAlpha = D3D12_BLEND_ONE;
+    blend_desc.RenderTarget[0].DestBlendAlpha = D3D12_BLEND_ONE;
+    blend_desc.RenderTarget[0].BlendOpAlpha = D3D12_BLEND_OP_ADD;
+    blend_desc.RenderTarget[0].LogicOp = D3D12_LOGIC_OP_NOOP;
+    blend_desc.RenderTarget[0].RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
+
+    D3D12_DEPTH_STENCILOP_DESC dsop_desc = {};
+    dsop_desc.StencilFailOp = D3D12_STENCIL_OP_KEEP;
+    dsop_desc.StencilDepthFailOp = D3D12_STENCIL_OP_KEEP;
+    dsop_desc.StencilPassOp = D3D12_STENCIL_OP_KEEP;
+    dsop_desc.StencilFunc = D3D12_COMPARISON_FUNC_ALWAYS;
+
+    D3D12_DEPTH_STENCIL_DESC ds_desc = {};
+    ds_desc.DepthEnable = TRUE;
+    ds_desc.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ALL;
+    ds_desc.DepthFunc = D3D12_COMPARISON_FUNC_LESS;
+    ds_desc.StencilEnable = FALSE;
+    // ds_desc.StencilReadMask = D3D12_DEFAULT_STENCIL_READ_MASK;
+    // ds_desc.StencilWriteMask = D3D12_DEFAULT_STENCIL_WRITE_MASK;
+    // ds_desc.FrontFace = dsop_desc;
+    // ds_desc.BackFace = dsop_desc;
+
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc = {};
+    pso_desc.InputLayout = {vertex_layout.data(), vertex_layout.size()};
+    pso_desc.pRootSignature = root_signature_;
+    pso_desc.VS = vs_bytecode;
+    pso_desc.PS = ps_bytecode;
+    pso_desc.RasterizerState = raster_desc;
+    pso_desc.BlendState = blend_desc;
+    pso_desc.DepthStencilState = ds_desc;
+    pso_desc.SampleMask = UINT_MAX;
+    pso_desc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+    pso_desc.NumRenderTargets = 1;
+    pso_desc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
+    pso_desc.DSVFormat = DXGI_FORMAT_D32_FLOAT;
+    pso_desc.SampleDesc.Count = 1;
+
+    auto* device = d.get();
+    throw_error(
+        device->CreateGraphicsPipelineState(&pso_desc, IID_PPV_ARGS(&pipeline_)));
+  }
+
+  CComPtr<ID3D12RootSignature> root_signature_;
+  CComPtr<ID3D12PipelineState> pipeline_;
+};
+
+class ScreenSpaceDraw : noncopyable {
+ public:
+  ScreenSpaceDraw(
+      Device& d,
+      VertexShaderHandle const& vertex_shader,
+      FragmentShaderHandle const& pixel_shader) {
+    create_root_signature(d);
+    create_pipeline(d, vertex_shader, pixel_shader);
+  }
+
+  void draw(SubmissionContext& sc, Image const& image) {
+    auto* command_list = sc.command_list();
+    command_list->SetGraphicsRootSignature(root_signature_);
+    command_list->SetGraphicsRootDescriptorTable(0, image.view().gpu());
     command_list->SetPipelineState(pipeline_);
     command_list->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
     command_list->DrawInstanced(3, 1, 0, 0);
   }
 
  private:
-  struct Vertex {
-    glm::vec3 position;
-    glm::vec2 uv;
-  };
-
   void create_root_signature(Device& d) {
     D3D12_DESCRIPTOR_RANGE descriptor_range = {};
     descriptor_range.NumDescriptors = 1;
@@ -1321,13 +1789,6 @@ class FullscreenPass : noncopyable {
       Device& d,
       VertexShaderHandle const& vs,
       FragmentShaderHandle const& fs) {
-    // clang-format off
-    // std::array<D3D12_INPUT_ELEMENT_DESC, 2> vertex_layout {{
-    //     {"POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
-    //     {"TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
-    // }};
-    // clang-format on
-
     D3D12_SHADER_BYTECODE vs_bytecode = {};
     vs_bytecode.pShaderBytecode = vs.code()->GetBufferPointer();
     vs_bytecode.BytecodeLength = vs.code()->GetBufferSize();
@@ -1411,46 +1872,62 @@ class Application : noncopyable {
     LOG(Info) << "Running render loop";
     Device device(adapters_[adapter_index_]);
 
-    int num_swapchain_images = 3;
+    int num_swapchain_images = 2;
     Swapchain swapchain(device, window_, num_swapchain_images);
+    DepthImage depth = create_depth_buffer(device);
     ResourceCreator resource_creator(device);
     resource_creator.begin_loading();
     std::vector<SubmissionContext> submission_context_list;
 
-    int num_framesflight = 3;
+    int num_framesflight = 1;
     for(int i = 0; i < num_framesflight; ++i) {
       submission_context_list.emplace_back(device);
     }
-
-    ImGuiState imgui(device, window_, swapchain.image_count());
 
     std::vector<RenderContext> render_context_list;
     render_context_list.resize(swapchain.image_count());
     for(std::size_t i = 0; i < render_context_list.size(); ++i) {
       auto&& rc = render_context_list[i];
-      rc.target_image(swapchain.image(i));
-      rc.target_view(swapchain.image_descriptor(i));
+      rc.target(swapchain.target(i));
       rc.scissor(0, window_.width(), 0, window_.height());
       rc.viewport(window_.width(), window_.height());
+      rc.depth(depth);
     }
 
+    ImGuiState imgui(device, window_, swapchain.image_count());
     ShaderCache<FragmentShaderHandle> fragment_shaders("ps_5_0");
     fragment_shaders.add("fullscreen_quad", "PSMain");
     fragment_shaders.add("fullscreen_quad", "PSMainInv");
+    fragment_shaders.add("static_model", "PSMain");
     ShaderCache<VertexShaderHandle> vertex_shaders("vs_5_0");
     vertex_shaders.add("fullscreen_quad", "VSMain");
+    vertex_shaders.add("static_model", "VSMain");
 
-    FullscreenPass copy_image(
+    ScreenSpaceDraw copy_image(
         device,
         vertex_shaders.find("fullscreen_quad", "VSMain"),
         fragment_shaders.find("fullscreen_quad", "PSMain"));
-    FullscreenPass copy_image_inv_alpha(
+    ScreenSpaceDraw copy_image_inv_alpha(
         device,
         vertex_shaders.find("fullscreen_quad", "VSMain"),
         fragment_shaders.find("fullscreen_quad", "PSMainInv"));
+
     Image face;
-    load(face, resource_creator, "assets/textures/test.png");
+    load(face, resource_creator, "assets/textures/test.jpg");
+
+    Model room_model;
+    load(room_model, resource_creator, "assets/models/viking_room.obj");
+
+    Image room_image;
+    load(room_image, resource_creator, "assets/textures/viking_room.png");
     resource_creator.finish_loading();
+
+    ForwardDraw forward_render(
+        device,
+        vertex_shaders.find("static_model", "VSMain"),
+        fragment_shaders.find("static_model", "PSMain"));
+
+    ShaderData scene_data(device, sizeof(ViewData));
 
     CComPtr<ID3D12GraphicsCommandList> command_list;
     throw_error(device.get()->CreateCommandList1(
@@ -1460,12 +1937,14 @@ class Application : noncopyable {
         IID_PPV_ARGS(&command_list)));
 
     std::uint32_t frame_index = 0;
+    auto last_frame_time = std::chrono::high_resolution_clock::now();
     while(!glfwWindowShouldClose(window_.glfw())) {
       glfwPollEvents();
 
       if(handle_window_size(swapchain, render_context_list) ==
          Window::SizeEvent::Changed) {
         imgui.create_image(window_.width(), window_.height());
+        depth = create_depth_buffer(device);
       }
 
       imgui.update();
@@ -1493,6 +1972,13 @@ class Application : noncopyable {
         ImGui::End();
       }
 
+      auto current = std::chrono::high_resolution_clock::now();
+      float dT = std::chrono::duration<float>(current - last_frame_time).count();
+      dT = std::clamp(dT, 0.01f, 0.05f);
+      last_frame_time = current;
+      update_render(dT);
+      scene_data.write(&main_camera_, sizeof(main_camera_));
+
       std::uint32_t next_frame_index = frame_index++;
       SubmissionContext& submission_context =
           submission_context_list[next_frame_index % submission_context_list.size()];
@@ -1503,35 +1989,13 @@ class Application : noncopyable {
       swapchain.wait(submission_context);
       submission_context.begin_frame();
       submission_context.begin_rendering(command_list);
-      resource_creator.finalise(submission_context);
+      resource_creator.finalise_all(submission_context);
       imgui.render(submission_context);
-
-      D3D12_RESOURCE_BARRIER barrier = {};
-      barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-      barrier.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
-      barrier.Transition.pResource = render_context.target_image();
-      barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-      barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_PRESENT;
-      barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_RENDER_TARGET;
-      command_list->ResourceBarrier(1, &barrier);
-
-      command_list->ClearRenderTargetView(
-          render_context.target_view().cpu(),
-          &clear_colour_[0],
-          0,
-          nullptr);
-
-      if(face.image()) {
-        render_context.descriptor(0, face.view());
-        copy_image.render(render_context, submission_context);
-      }
-
-      render_context.descriptor(0, imgui.resource_view());
-      copy_image_inv_alpha.render(render_context, submission_context);
-
-      barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_RENDER_TARGET;
-      barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_PRESENT;
-      command_list->ResourceBarrier(1, &barrier);
+      render_context.begin_rendering(submission_context, clear_colour_);
+      // copy_image.draw(submission_context, face);
+      forward_render.draw(submission_context, room_model, room_image, scene_data);
+      copy_image_inv_alpha.draw(submission_context, imgui.target().image());
+      render_context.finish_rendering(submission_context);
       submission_context.finish_rendering();
       swapchain.present(submission_context);
     }
@@ -1541,6 +2005,29 @@ class Application : noncopyable {
   }
 
  private:
+  struct alignas(256) ViewData {
+    glm::mat4 projection;
+    glm::mat4 view;
+    glm::mat4 model = glm::mat4(1.f);
+  };
+
+  void update_render(float dT) {
+    main_camera_.model = glm::rotate(
+        main_camera_.model,
+        dT * glm::radians(90.0f),
+        glm::vec3(0.0f, 0.0f, 1.0f));
+    main_camera_.view = glm::lookAt(
+        glm::vec3(2.0f, 2.0f, 2.0f),
+        glm::vec3(0.0f, 0.0f, 0.0f),
+        glm::vec3(0.0f, 0.0f, 1.0f));
+    main_camera_.projection = glm::perspective(
+        glm::radians(45.0f),
+        // Should actually come from the swapchain.
+        window_.width() / (window_.height() * 1.f),
+        0.1f,
+        10.0f);
+  }
+
   void save_adapters() {
     adapters_ = get_adapters();
     for(auto&& adapter : adapters_) {
@@ -1566,8 +2053,7 @@ class Application : noncopyable {
       render_context_list.resize(swapchain.image_count());
       for(std::size_t i = 0; i < render_context_list.size(); ++i) {
         auto&& rc = render_context_list[i];
-        rc.target_image(swapchain.image(i));
-        rc.target_view(swapchain.image_descriptor(i));
+        rc.target(swapchain.target(i));
         rc.scissor(0, window_.width(), 0, window_.height());
         rc.viewport(window_.width(), window_.height());
       }
@@ -1576,11 +2062,40 @@ class Application : noncopyable {
     return Window::SizeEvent::None;
   }
 
+  DepthImage create_depth_buffer(Device& d) const {
+    D3D12_RESOURCE_DESC desc = {};
+    desc.MipLevels = 0;
+    desc.Format = DXGI_FORMAT_D32_FLOAT;
+    desc.Width = window_.width();
+    desc.Height = window_.height();
+    desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL;
+    desc.DepthOrArraySize = 1;
+    desc.SampleDesc.Count = 1;
+    desc.SampleDesc.Quality = 0;
+    desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+    auto* device = d.get();
+
+    D3D12_CLEAR_VALUE clear = {};
+    clear.Format = DXGI_FORMAT_D32_FLOAT;
+    clear.DepthStencil.Depth = 1.f;
+    clear.DepthStencil.Stencil = 0;
+    CComPtr<ID3D12Resource> image;
+    throw_error(device->CreateCommittedResource(
+        &d.resource_heap(),
+        D3D12_HEAP_FLAG_NONE,
+        &desc,
+        D3D12_RESOURCE_STATE_DEPTH_WRITE,
+        &clear,
+        IID_PPV_ARGS(&image)));
+    return {d, std::move(image)};
+  }
+
   std::vector<CComPtr<IDXGIAdapter>> adapters_;
   int adapter_index_ = 0;
   glm::vec4 clear_colour_ = {0.4f, 0.45f, 0.6f, 1.f};
   std::vector<char> adapter_names_;
   Window& window_;
+  ViewData main_camera_;
 };
 
 static void glfw_error_callback(int error, const char* description) {
@@ -1599,7 +2114,6 @@ int main(int, char**) {
     }
   } report_on_exit;
 
-  // Setup GLFW window
   glfwSetErrorCallback(glfw_error_callback);
   if(!glfwInit())
     return 1;
