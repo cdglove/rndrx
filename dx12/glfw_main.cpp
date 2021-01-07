@@ -1,4 +1,4 @@
-// Copyright (c) 2020 Google Inc.
+// Copyright (c) 2021 Google Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -34,6 +34,8 @@
 #include <chrono>
 #include <functional>
 #include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtx/fast_trigonometry.hpp>
+#include <glm/mat3x3.hpp>
 #include <glm/mat4x4.hpp>
 #include <glm/vec2.hpp>
 #include <glm/vec3.hpp>
@@ -842,9 +844,9 @@ class ShaderCache {
   ShaderCache(std::string shader_model)
       : shader_model_(std::move(shader_model)) {
   }
-  void add(std::string file, std::string entry) {
+
+  ShaderHandle add(std::string file, std::string entry) {
 #if RNDRX_ENABLE_SHADER_DEBUGGING
-    // Enable better shader debugging with the graphics debugging tools.
     unsigned compile_flags = D3DCOMPILE_DEBUG | D3DCOMPILE_SKIP_OPTIMIZATION;
 #else
     unsigned compile_flags = 0;
@@ -873,9 +875,10 @@ class ShaderCache {
         &resource,
         nullptr));
 
-    shaders_.emplace(
+    auto item = shaders_.emplace(
         ShaderDef(std::move(file), std::move(entry)),
         std::move(resource));
+    return item.first->second.p;
   }
 
   ShaderHandle find(std::string file, std::string entry) {
@@ -1042,10 +1045,6 @@ class DepthImage : noncopyable {
   DepthImage(Device& d, CComPtr<ID3D12Resource> image)
       : image_(std::move(image))
       , ds_view_(d.dsv_pool().allocate()) {
-    // D3D12_DEPTH_STENCIL_VIEW_DESC desc = {};
-    // desc.Format = DXGI_FORMAT_D32_FLOAT;
-    // desc.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2D;
-    // desc.Flags = D3D12_DSV_FLAG_NONE;
     d.get()->CreateDepthStencilView(image_, nullptr, ds_view_.cpu());
   }
 
@@ -1145,7 +1144,6 @@ class RenderContext : noncopyable {
           0,
           nullptr);
     }
-
   }
 
   void finish_rendering(SubmissionContext& sc) {
@@ -1220,6 +1218,7 @@ void load(Model& model, ResourceCreator& rc, char const* path) {
   // We only support one vertex format for now.
   struct Vertex {
     glm::vec3 position;
+    glm::vec3 normal;
     glm::vec2 uv;
   };
 
@@ -1233,6 +1232,12 @@ void load(Model& model, ResourceCreator& rc, char const* path) {
           attrib.vertices[3 * index.vertex_index + 0],
           attrib.vertices[3 * index.vertex_index + 1],
           attrib.vertices[3 * index.vertex_index + 2]};
+
+      vertex.normal = {
+          attrib.normals[3 * index.normal_index + 0],
+          attrib.normals[3 * index.normal_index + 1],
+          attrib.normals[3 * index.normal_index + 2]};
+
       vertex.uv = {
           attrib.texcoords[2 * index.texcoord_index + 0],
           // obj format puts 0, 0 at bottom left, need to flip it.
@@ -1427,19 +1432,9 @@ class ImGuiState : noncopyable {
   ImGuiState(Device& device, Window& window, int num_swapchain_images)
       : device_(device) {
     create_image(window.width(), window.height());
-
-    // Setup Dear ImGui context
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
-    ImGuiIO& io = ImGui::GetIO();
-    (void)io;
-    // io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;     // Enable
-    // Keyboard Controls io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;
-    // // Enable Gamepad Controls
-
-    // Setup Dear ImGui style
     ImGui::StyleColorsDark();
-    // ImGui::StyleColorsClassic();
 
     // Hijjacking vulkan glfw for dx12 seems to work
     ImGui_ImplGlfw_InitForVulkan(window.glfw(), true);
@@ -1549,12 +1544,12 @@ class ForwardDraw : noncopyable {
   void draw(
       SubmissionContext& sc,
       Model const& model,
-      Image const& image,
+      Image const& albedo,
       ShaderData const& shader_data) {
     auto* command_list = sc.command_list();
     command_list->SetGraphicsRootSignature(root_signature_);
     command_list->SetGraphicsRootDescriptorTable(0, shader_data.view().gpu());
-    command_list->SetGraphicsRootDescriptorTable(1, image.view().gpu());
+    command_list->SetGraphicsRootDescriptorTable(1, albedo.view().gpu());
     command_list->SetPipelineState(pipeline_);
     command_list->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
     command_list->IASetVertexBuffers(0, 1, &model.view());
@@ -1631,9 +1626,10 @@ class ForwardDraw : noncopyable {
       FragmentShaderHandle const& fs) {
     // We currently only support one vertex format.
     // clang-format off
-    std::array<D3D12_INPUT_ELEMENT_DESC, 2> vertex_layout {{
+    std::array<D3D12_INPUT_ELEMENT_DESC, 3> vertex_layout {{
         {"POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
-        {"TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+        {"NORMAL", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+        {"TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 24, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
     }};
     // clang-format on
 
@@ -1672,21 +1668,11 @@ class ForwardDraw : noncopyable {
     blend_desc.RenderTarget[0].LogicOp = D3D12_LOGIC_OP_NOOP;
     blend_desc.RenderTarget[0].RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
 
-    D3D12_DEPTH_STENCILOP_DESC dsop_desc = {};
-    dsop_desc.StencilFailOp = D3D12_STENCIL_OP_KEEP;
-    dsop_desc.StencilDepthFailOp = D3D12_STENCIL_OP_KEEP;
-    dsop_desc.StencilPassOp = D3D12_STENCIL_OP_KEEP;
-    dsop_desc.StencilFunc = D3D12_COMPARISON_FUNC_ALWAYS;
-
     D3D12_DEPTH_STENCIL_DESC ds_desc = {};
     ds_desc.DepthEnable = TRUE;
     ds_desc.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ALL;
     ds_desc.DepthFunc = D3D12_COMPARISON_FUNC_LESS;
     ds_desc.StencilEnable = FALSE;
-    // ds_desc.StencilReadMask = D3D12_DEFAULT_STENCIL_READ_MASK;
-    // ds_desc.StencilWriteMask = D3D12_DEFAULT_STENCIL_WRITE_MASK;
-    // ds_desc.FrontFace = dsop_desc;
-    // ds_desc.BackFace = dsop_desc;
 
     D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc = {};
     pso_desc.InputLayout = {vertex_layout.data(), vertex_layout.size()};
@@ -1872,14 +1858,14 @@ class Application : noncopyable {
     LOG(Info) << "Running render loop";
     Device device(adapters_[adapter_index_]);
 
-    int num_swapchain_images = 2;
-    Swapchain swapchain(device, window_, num_swapchain_images);
+    int num_swapchain_images = 3;
+    Swapchain swapchain = {device, window_, num_swapchain_images};
     DepthImage depth = create_depth_buffer(device);
     ResourceCreator resource_creator(device);
     resource_creator.begin_loading();
     std::vector<SubmissionContext> submission_context_list;
 
-    int num_framesflight = 1;
+    int num_framesflight = 3;
     for(int i = 0; i < num_framesflight; ++i) {
       submission_context_list.emplace_back(device);
     }
@@ -1898,7 +1884,8 @@ class Application : noncopyable {
     ShaderCache<FragmentShaderHandle> fragment_shaders("ps_5_0");
     fragment_shaders.add("fullscreen_quad", "PSMain");
     fragment_shaders.add("fullscreen_quad", "PSMainInv");
-    fragment_shaders.add("static_model", "PSMain");
+    fragment_shaders.add("static_model", "Albedo");
+    fragment_shaders.add("static_model", "Phong");
     ShaderCache<VertexShaderHandle> vertex_shaders("vs_5_0");
     vertex_shaders.add("fullscreen_quad", "VSMain");
     vertex_shaders.add("static_model", "VSMain");
@@ -1912,22 +1899,25 @@ class Application : noncopyable {
         vertex_shaders.find("fullscreen_quad", "VSMain"),
         fragment_shaders.find("fullscreen_quad", "PSMainInv"));
 
-    Image face;
-    load(face, resource_creator, "assets/textures/test.jpg");
+    Image background;
+    load(background, resource_creator, "assets/textures/test.jpg");
 
-    Model room_model;
-    load(room_model, resource_creator, "assets/models/viking_room.obj");
+    Model main_model;
+    load(main_model, resource_creator, "assets/models/cottage.obj");
 
-    Image room_image;
-    load(room_image, resource_creator, "assets/textures/viking_room.png");
+    Image main_albedo;
+    load(
+        main_albedo,
+        resource_creator,
+        "assets/textures/Cottage_Clean/Cottage_Clean_Base_Color.png");
     resource_creator.finish_loading();
 
     ForwardDraw forward_render(
         device,
         vertex_shaders.find("static_model", "VSMain"),
-        fragment_shaders.find("static_model", "PSMain"));
+        fragment_shaders.find("static_model", "Phong"));
 
-    ShaderData scene_data(device, sizeof(ViewData));
+    ShaderData scene_data(device, sizeof(ViewShaderData));
 
     CComPtr<ID3D12GraphicsCommandList> command_list;
     throw_error(device.get()->CreateCommandList1(
@@ -1976,6 +1966,7 @@ class Application : noncopyable {
       float dT = std::chrono::duration<float>(current - last_frame_time).count();
       dT = std::clamp(dT, 0.01f, 0.05f);
       last_frame_time = current;
+
       update_render(dT);
       scene_data.write(&main_camera_, sizeof(main_camera_));
 
@@ -1992,8 +1983,8 @@ class Application : noncopyable {
       resource_creator.finalise_all(submission_context);
       imgui.render(submission_context);
       render_context.begin_rendering(submission_context, clear_colour_);
-      // copy_image.draw(submission_context, face);
-      forward_render.draw(submission_context, room_model, room_image, scene_data);
+      // copy_image.draw(submission_context, background);
+      forward_render.draw(submission_context, main_model, main_albedo, scene_data);
       copy_image_inv_alpha.draw(submission_context, imgui.target().image());
       render_context.finish_rendering(submission_context);
       submission_context.finish_rendering();
@@ -2005,27 +1996,76 @@ class Application : noncopyable {
   }
 
  private:
-  struct alignas(256) ViewData {
+  struct alignas(256) ViewShaderData {
     glm::mat4 projection;
     glm::mat4 view;
     glm::mat4 model = glm::mat4(1.f);
   };
 
   void update_render(float dT) {
-    main_camera_.model = glm::rotate(
-        main_camera_.model,
-        dT * glm::radians(90.0f),
-        glm::vec3(0.0f, 0.0f, 1.0f));
+    update_main_camera(dT);
+  }
+
+  struct Scene {
+    static constexpr glm::vec3 Up{0.0f, 1.0f, 0.0f};
+    static constexpr glm::vec3 Right{1.0f, 0.0f, 0.0f};
+    static constexpr glm::vec3 Out{0.0f, 0.0f, 1.0f};
+  };
+
+  void update_main_camera(float dT) {
+    if(ImGui::Begin("Main View")) {
+      ImGui::SliderFloat("Camera Distance", &main_camera_distance_, 0.1f, 50.f);
+      ImGui::SliderAngle(
+          "Speed",
+          &rotation_speed_,
+          -360.f,
+          360.f,
+          "%1.f",
+          ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_NoRoundToFormat);
+      ImGui::SameLine();
+      ImGui::Checkbox("Rotate", &enable_rotation_);
+      ImGui::End();
+    }
+
+    if(enable_rotation_) {
+      main_camera_.model =
+          glm::rotate(main_camera_.model, dT * rotation_speed_, Scene::Up);
+    }
+
+    auto& io = ImGui::GetIO();
+    if(!io.WantCaptureMouse) {
+      if(io.MouseDown[ImGuiMouseButton_Left]) {
+        if(io.MouseDelta.x || io.MouseDelta.y) {
+          glm::vec3 nudge_x, nudge_y;
+          if(glm::abs(glm::dot(look_, Scene::Up)) > 0.99f) {
+            nudge_y = glm::cross(Scene::Right, look_);
+            nudge_x = glm::cross(look_, nudge_y);
+          }
+          else {
+            nudge_x = glm::cross(look_, Scene::Up);
+            nudge_y = glm::cross(nudge_x, look_);
+          }
+          float rotation_scale = 0.5f;
+          nudge_x *= dT * io.MouseDelta.x * rotation_scale;
+          nudge_y *= dT * io.MouseDelta.y * rotation_scale;
+          look_ += nudge_x;
+          look_ += nudge_y;
+          look_ = glm::normalize(look_);
+        }
+      }
+    }
+
     main_camera_.view = glm::lookAt(
-        glm::vec3(2.0f, 2.0f, 2.0f),
+        look_ * main_camera_distance_,
         glm::vec3(0.0f, 0.0f, 0.0f),
-        glm::vec3(0.0f, 0.0f, 1.0f));
+        Scene::Up);
+
     main_camera_.projection = glm::perspective(
         glm::radians(45.0f),
         // Should actually come from the swapchain.
         window_.width() / (window_.height() * 1.f),
         0.1f,
-        10.0f);
+        1000.0f);
   }
 
   void save_adapters() {
@@ -2095,7 +2135,14 @@ class Application : noncopyable {
   glm::vec4 clear_colour_ = {0.4f, 0.45f, 0.6f, 1.f};
   std::vector<char> adapter_names_;
   Window& window_;
-  ViewData main_camera_;
+  Swapchain* swapchain_ = nullptr;
+  Device* device_ = nullptr;
+  DepthImage* depth_ = nullptr;
+  ViewShaderData main_camera_;
+  float main_camera_distance_ = 20.f;
+  glm::vec3 look_{0, 0, -1};
+  float rotation_speed_ = glm::radians(90.f);
+  bool enable_rotation_ = true;
 };
 
 static void glfw_error_callback(int error, const char* description) {
@@ -2115,8 +2162,9 @@ int main(int, char**) {
   } report_on_exit;
 
   glfwSetErrorCallback(glfw_error_callback);
-  if(!glfwInit())
+  if(!glfwInit()) {
     return 1;
+  }
 
   struct CleanupGlfw {
     ~CleanupGlfw() {
