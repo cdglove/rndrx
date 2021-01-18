@@ -11,13 +11,14 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-#define NOMINMAX                     1
-#define WIN32_LEAN_AND_MEAN          1
-#define GLM_FORCE_RADIANS            1
-#define GLM_FORCE_DEPTH_ZERO_TO_ONE  1
-#define TINYOBJLOADER_IMPLEMENTATION 1
-#define STB_IMAGE_IMPLEMENTATION     1
-#define GLFW_EXPOSE_NATIVE_WIN32     1
+#define NOMINMAX                           1
+#define WIN32_LEAN_AND_MEAN                1
+#define GLM_FORCE_RADIANS                  1
+#define GLM_FORCE_DEPTH_ZERO_TO_ONE        1
+#define GLM_FORCE_DEFAULT_ALIGNED_GENTYPES 1
+#define TINYOBJLOADER_IMPLEMENTATION       1
+#define STB_IMAGE_IMPLEMENTATION           1
+#define GLFW_EXPOSE_NATIVE_WIN32           1
 
 #include <GLFW/glfw3.h>
 #include <GLFW/glfw3native.h>
@@ -46,6 +47,7 @@
 #include <string>
 #include <string_view>
 #include <vector>
+#include <unordered_map>
 #include "imgui.h"
 #include "imgui_impl_dx12.h"
 #include "imgui_impl_glfw.h"
@@ -95,6 +97,11 @@ struct LogState : noncopyable {
       g_LogLevel >= LogLevel::level && !log_state.is_done();                   \
       log_state.done())                                                        \
   std::cerr
+
+template <typename Ex>
+void throw_exception(Ex e) {
+  throw e;
+}
 
 void throw_error(HRESULT r) {
   if(r != S_OK) {
@@ -480,6 +487,7 @@ class ResourceCreator : noncopyable {
 
   ~ResourceCreator() {
     if(copy_fence_event_) {
+      wait();
       CloseHandle(copy_fence_event_);
     }
   }
@@ -575,9 +583,9 @@ class ResourceCreator : noncopyable {
   void finalise_all(SubmissionContext& sc) {
     auto completed_value = copy_fence_->GetCompletedValue();
     if(completed_value < current_fence_value_) {
-      throw_error(copy_fence_->SetEventOnCompletion(
-          current_fence_value_,
-          copy_fence_event_));
+      completed_value = current_fence_value_;
+      throw_error(
+          copy_fence_->SetEventOnCompletion(completed_value, copy_fence_event_));
       WaitForSingleObject(copy_fence_event_, INFINITE);
     }
 
@@ -585,6 +593,16 @@ class ResourceCreator : noncopyable {
           finalisation_queue_.front().fence_value <= completed_value) {
       finalisation_queue_.front().fn(*this, sc);
       finalisation_queue_.pop();
+    }
+  }
+
+  void wait() {
+    auto completed_value = copy_fence_->GetCompletedValue();
+    if(completed_value < current_fence_value_) {
+      completed_value = current_fence_value_;
+      throw_error(
+          copy_fence_->SetEventOnCompletion(completed_value, copy_fence_event_));
+      WaitForSingleObject(copy_fence_event_, INFINITE);
     }
   }
 
@@ -781,7 +799,6 @@ class ResourceCreator : noncopyable {
     auto* device = device_.get();
     throw_error(
         device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&copy_fence_)));
-    current_fence_value_ = 1;
     copy_fence_event_ = CreateEvent(nullptr, FALSE, FALSE, nullptr);
     if(!copy_fence_event_) {
       throw_error(HRESULT_FROM_WIN32(GetLastError()));
@@ -808,20 +825,98 @@ class ResourceCreator : noncopyable {
   std::queue<FinalisationNode> finalisation_queue_;
 };
 
+class ShaderMetadata {
+ public:
+  ShaderMetadata(ID3D12ShaderReflection* meta)
+      : meta_(meta) {
+    cache_descriptor_ranges();
+  }
+
+  std::vector<D3D12_DESCRIPTOR_RANGE> const& get_descriptor_ranges() const {
+    return descriptor_ranges_;
+  }
+
+  std::vector<D3D12_DESCRIPTOR_RANGE> const& get_sampler_ranges() const {
+    return sampler_ranges_;
+  }
+
+ private:
+  void cache_descriptor_ranges() {
+    D3D12_SHADER_DESC vs_desc = {};
+    meta_->GetDesc(&vs_desc);
+    for(unsigned idx = 0; idx < vs_desc.BoundResources; ++idx) {
+      D3D12_SHADER_INPUT_BIND_DESC binding_desc;
+      meta_->GetResourceBindingDesc(idx, &binding_desc);
+      if(binding_desc.Type == D3D_SIT_CBUFFER) {
+        descriptor_ranges_.emplace_back();
+        D3D12_DESCRIPTOR_RANGE& range = descriptor_ranges_.back();
+        range.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_CBV;
+        range.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+        range.BaseShaderRegister = binding_desc.BindPoint;
+        range.NumDescriptors = 1;
+        range.RegisterSpace = 0;
+      }
+      else if(binding_desc.Type == D3D_SIT_TEXTURE) {
+        descriptor_ranges_.emplace_back();
+        D3D12_DESCRIPTOR_RANGE& range = descriptor_ranges_.back();
+        range.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+        range.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+        range.BaseShaderRegister = binding_desc.BindPoint;
+        range.NumDescriptors = 1;
+        range.RegisterSpace = 0;
+      }
+      else if(binding_desc.Type == D3D_SIT_SAMPLER) {
+        sampler_ranges_.emplace_back();
+        D3D12_DESCRIPTOR_RANGE& range = sampler_ranges_.back();
+        range.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER;
+        range.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+        range.BaseShaderRegister = binding_desc.BindPoint;
+        range.NumDescriptors = 1;
+        range.RegisterSpace = 0;
+      }
+    }
+  }
+
+  ID3D12ShaderReflection* meta_;
+  std::vector<D3D12_DESCRIPTOR_RANGE> descriptor_ranges_;
+  std::vector<D3D12_DESCRIPTOR_RANGE> sampler_ranges_;
+};
+
 template <typename>
 class ShaderCache;
+
 class FragmentShaderHandle : noncopyable {
  public:
   ID3DBlob* code() const {
     return code_;
   }
 
+  std::vector<D3D12_ROOT_DESCRIPTOR_TABLE> const& get_descriptor_tables() const {
+    return descriptor_tables_;
+  }
+
  private:
   friend class ShaderCache<FragmentShaderHandle>;
-  FragmentShaderHandle(ID3DBlob* shader)
-      : code_(shader) {
+  FragmentShaderHandle(ID3DBlob* shader, ID3D12ShaderReflection* meta)
+      : code_(shader)
+      , meta_(meta) {
+    cache_descriptor_tables();
   }
+
+  void cache_descriptor_tables() {
+    auto&& ranges = meta_.get_descriptor_ranges();
+    std::transform(
+        ranges.begin(),
+        ranges.end(),
+        std::back_inserter(descriptor_tables_),
+        [](D3D12_DESCRIPTOR_RANGE const& range) -> D3D12_ROOT_DESCRIPTOR_TABLE {
+          return {1, &range};
+        });
+  }
+
   ID3DBlob* code_;
+  ShaderMetadata meta_;
+  std::vector<D3D12_ROOT_DESCRIPTOR_TABLE> descriptor_tables_;
 };
 
 class VertexShaderHandle : noncopyable {
@@ -830,12 +925,32 @@ class VertexShaderHandle : noncopyable {
     return code_;
   }
 
+  std::vector<D3D12_ROOT_DESCRIPTOR_TABLE> const& get_descriptor_tables() const {
+    return descriptor_tables_;
+  }
+
  private:
   friend class ShaderCache<VertexShaderHandle>;
-  VertexShaderHandle(ID3DBlob* shader)
-      : code_(shader) {
+  VertexShaderHandle(ID3DBlob* shader, ID3D12ShaderReflection* meta)
+      : code_(shader)
+      , meta_(meta) {
+    cache_descriptor_tables();
   }
+
+  void cache_descriptor_tables() {
+    auto&& ranges = meta_.get_descriptor_ranges();
+    std::transform(
+        ranges.begin(),
+        ranges.end(),
+        std::back_inserter(descriptor_tables_),
+        [](D3D12_DESCRIPTOR_RANGE const& range) -> D3D12_ROOT_DESCRIPTOR_TABLE {
+          return {1, &range};
+        });
+  }
+
   ID3DBlob* code_;
+  ShaderMetadata meta_;
+  std::vector<D3D12_ROOT_DESCRIPTOR_TABLE> descriptor_tables_;
 };
 
 template <typename ShaderHandle>
@@ -861,7 +976,7 @@ class ShaderCache {
     fin.seekg(0, std::ios::beg);
     source.resize(len);
     fin.read(source.data(), len);
-    CComPtr<ID3DBlob> resource;
+    CComPtr<ID3DBlob> code;
     throw_error(D3DCompile(
         source.data(),
         source.size(),
@@ -872,13 +987,19 @@ class ShaderCache {
         shader_model_.c_str(),
         compile_flags,
         0,
-        &resource,
+        &code,
         nullptr));
+
+    CComPtr<ID3D12ShaderReflection> reflection;
+    throw_error(D3DReflect(
+        code->GetBufferPointer(),
+        code->GetBufferSize(),
+        IID_PPV_ARGS(&reflection)));
 
     auto item = shaders_.emplace(
         ShaderDef(std::move(file), std::move(entry)),
-        std::move(resource));
-    return item.first->second.p;
+        Shader(std::move(code), std::move(reflection)));
+    return {item.first->second.code.p, item.first->second.meta.p};
   }
 
   ShaderHandle find(std::string file, std::string entry) {
@@ -886,7 +1007,7 @@ class ShaderCache {
     if(iter == shaders_.end()) {
       return nullptr;
     }
-    return iter->second.p;
+    return {iter->second.code.p, iter->second.meta.p};
   }
 
  private:
@@ -903,6 +1024,16 @@ class ShaderCache {
     }
   };
 
+  struct Shader {
+    Shader(CComPtr<ID3DBlob>&& c, CComPtr<ID3D12ShaderReflection>&& m)
+        : code(std::move(c))
+        , meta(std::move(m)) {
+    }
+
+    CComPtr<ID3DBlob> code;
+    CComPtr<ID3D12ShaderReflection> meta;
+  };
+
   struct HashShaderDef {
     std::size_t operator()(ShaderDef const& sd) const {
       auto hasher = std::hash<std::string>();
@@ -910,7 +1041,7 @@ class ShaderCache {
     }
   };
 
-  std::unordered_map<ShaderDef, CComPtr<ID3DBlob>, HashShaderDef> shaders_;
+  std::unordered_map<ShaderDef, Shader, HashShaderDef> shaders_;
   std::string shader_model_;
 };
 
@@ -930,15 +1061,21 @@ class ShaderData {
   }
 
   void write(void* source, std::size_t size) {
-    std::memcpy(ptr_, source, size);
+    write(source, 0, size);
   }
+
+  void write(void* source, std::size_t offset, std::size_t size) {
+    std::memcpy(ptr_ + offset, source, size);
+  }
+
+  CComPtr<ID3D12Resource> constant_buffer_;
 
  private:
   void create_constant_buffer(Device& d, std::size_t size) {
     auto* device = d.get();
     D3D12_RESOURCE_DESC desc = {};
     desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
-    desc.Width = size;
+    desc.Width = std::max<std::size_t>(size, 256);
     desc.Height = 1;
     desc.DepthOrArraySize = 1;
     desc.MipLevels = 1;
@@ -960,14 +1097,13 @@ class ShaderData {
     auto* device = d.get();
     D3D12_CONSTANT_BUFFER_VIEW_DESC desc = {};
     desc.BufferLocation = constant_buffer_->GetGPUVirtualAddress();
-    desc.SizeInBytes = size;
+    desc.SizeInBytes = std::max<std::size_t>(size, 256);
     view_ = d.srv_pool().allocate();
     device->CreateConstantBufferView(&desc, view_.cpu());
   }
 
-  CComPtr<ID3D12Resource> constant_buffer_;
   DescriptorHandle view_;
-  void* ptr_;
+  char* ptr_;
 };
 
 class Image : noncopyable {
@@ -998,22 +1134,22 @@ class Image : noncopyable {
   DescriptorHandle view_;
 };
 
-class RenderableImage : noncopyable {
+class TargetableImage : noncopyable {
  public:
-  RenderableImage() = default;
-  RenderableImage(Device& d, Image&& image)
+  TargetableImage() = default;
+  TargetableImage(Device& d, Image&& image)
       : image_(std::move(image))
       , target_view_(d.rtv_pool().allocate()) {
     d.get()->CreateRenderTargetView(image_.resource(), nullptr, target_view_.cpu());
   }
 
-  RenderableImage(Device& d, CComPtr<ID3D12Resource> image)
+  TargetableImage(Device& d, CComPtr<ID3D12Resource> image)
       : image_(d, std::move(image))
       , target_view_(d.rtv_pool().allocate()) {
     d.get()->CreateRenderTargetView(image_.resource(), nullptr, target_view_.cpu());
   }
 
-  RenderableImage(
+  TargetableImage(
       CComPtr<ID3D12Resource> image,
       DescriptorHandle&& view,
       DescriptorHandle&& target_view)
@@ -1066,9 +1202,9 @@ class DepthImage : noncopyable {
   DescriptorHandle ds_view_;
 };
 
-class Model : noncopyable {
+class Geometry : noncopyable {
  public:
-  Model() = default;
+  Geometry() = default;
   D3D12_VERTEX_BUFFER_VIEW const& view() const {
     return view_;
   }
@@ -1078,14 +1214,14 @@ class Model : noncopyable {
   }
 
  private:
-  friend void load(Model&, ResourceCreator&, char const*);
+  friend void load(Geometry&, ResourceCreator&, char const*);
   CComPtr<ID3D12Resource> vertex_buffer_;
   D3D12_VERTEX_BUFFER_VIEW view_;
 };
 
 class RenderContext : noncopyable {
  public:
-  void target(RenderableImage const& target) {
+  void target(TargetableImage const& target) {
     target_ = &target;
   }
 
@@ -1159,7 +1295,7 @@ class RenderContext : noncopyable {
   }
 
  private:
-  RenderableImage const* target_ = nullptr;
+  TargetableImage const* target_ = nullptr;
   DepthImage const* depth_ = nullptr;
   D3D12_VIEWPORT viewport_;
   D3D12_RECT scissor_;
@@ -1205,7 +1341,7 @@ void load(Image& image, ResourceCreator& rc, char const* path) {
   });
 }
 
-void load(Model& model, ResourceCreator& rc, char const* path) {
+void load(Geometry& model, ResourceCreator& rc, char const* path) {
   tinyobj::attrib_t attrib;
   std::vector<tinyobj::shape_t> shapes;
   std::vector<tinyobj::material_t> materials;
@@ -1291,6 +1427,7 @@ class Swapchain : noncopyable {
 
   ~Swapchain() {
     if(present_fence_event_) {
+      wait_for_last_frame();
       CloseHandle(present_fence_event_);
     }
 
@@ -1307,7 +1444,7 @@ class Swapchain : noncopyable {
     return swapchain_->GetCurrentBackBufferIndex();
   }
 
-  RenderableImage const& target(int idx) const {
+  TargetableImage const& target(int idx) const {
     return target_[idx];
   }
 
@@ -1332,7 +1469,6 @@ class Swapchain : noncopyable {
     auto completed_value = present_fence_->GetCompletedValue();
     auto fence_value = current_present_fence_value_;
 
-    // Can be zero if no fence is signaled.
     if(completed_value < fence_value) {
       throw_error(
           present_fence_->SetEventOnCompletion(fence_value, present_fence_event_));
@@ -1347,7 +1483,7 @@ class Swapchain : noncopyable {
     desc.Width = width;
     desc.Height = height;
     swapchain_ = nullptr;
-    for(RenderableImage& i : target_) {
+    for(TargetableImage& i : target_) {
       i = {};
     }
 
@@ -1407,7 +1543,6 @@ class Swapchain : noncopyable {
         0,
         D3D12_FENCE_FLAG_NONE,
         IID_PPV_ARGS(&present_fence_)));
-    current_present_fence_value_ = 1;
     present_fence_event_ = CreateEvent(nullptr, FALSE, FALSE, nullptr);
     if(!present_fence_event_) {
       throw_error(HRESULT_FROM_WIN32(GetLastError()));
@@ -1424,7 +1559,7 @@ class Swapchain : noncopyable {
   UINT64 current_present_fence_value_ = 0;
   HANDLE present_fence_event_ = nullptr;
   HANDLE swapchain_waitable_ = nullptr;
-  std::array<RenderableImage, 3> target_;
+  std::array<TargetableImage, 3> target_;
 };
 
 class ImGuiState : noncopyable {
@@ -1484,7 +1619,7 @@ class ImGuiState : noncopyable {
         &clear,
         IID_PPV_ARGS(&image)));
 
-    target_ = RenderableImage(device_, std::move(image));
+    target_ = TargetableImage(device_, std::move(image));
   }
 
   void update() {
@@ -1517,7 +1652,7 @@ class ImGuiState : noncopyable {
     command_list->ResourceBarrier(1, &barrier);
   }
 
-  RenderableImage const& target() const {
+  TargetableImage const& target() const {
     return target_;
   }
 
@@ -1528,61 +1663,103 @@ class ImGuiState : noncopyable {
   bool show_demo_window_ = false;
   bool show_another_window_ = false;
   glm::vec4 clear_colour_ = {0.f, 0.f, 0.f, 1.f};
-  RenderableImage target_;
+  TargetableImage target_;
 };
 
-class ForwardDraw : noncopyable {
+class Model : noncopyable {
  public:
-  ForwardDraw(
+  Model(Geometry const& geo, Image const& albedo, Image const& normals)
+      : geometry_(geo)
+      , albedo_(albedo)
+      , normals_(normals) {
+  }
+
+  Image const& albedo() const {
+    return albedo_;
+  }
+
+  Image const& normals() const {
+    return normals_;
+  }
+
+  Geometry const& geometry() const {
+    return geometry_;
+  }
+
+ private:
+  Geometry const& geometry_;
+  Image const& albedo_;
+  Image const& normals_;
+};
+
+class DrawModelForward : noncopyable {
+ public:
+  DrawModelForward(
       Device& d,
       VertexShaderHandle const& vertex_shader,
       FragmentShaderHandle const& pixel_shader) {
-    create_root_signature(d);
+    create_root_signature(d, vertex_shader, pixel_shader);
     create_pipeline(d, vertex_shader, pixel_shader);
   }
 
   void draw(
       SubmissionContext& sc,
       Model const& model,
-      Image const& albedo,
-      ShaderData const& shader_data) {
+      ShaderData const& view_data,
+      ShaderData const& lighting_data) {
     auto* command_list = sc.command_list();
     command_list->SetGraphicsRootSignature(root_signature_);
-    command_list->SetGraphicsRootDescriptorTable(0, shader_data.view().gpu());
-    command_list->SetGraphicsRootDescriptorTable(1, albedo.view().gpu());
+    command_list->SetGraphicsRootDescriptorTable(0, view_data.view().gpu());
+    command_list->SetGraphicsRootDescriptorTable(1, lighting_data.view().gpu());
+    command_list->SetGraphicsRootDescriptorTable(2, model.albedo().view().gpu());
     command_list->SetPipelineState(pipeline_);
     command_list->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-    command_list->IASetVertexBuffers(0, 1, &model.view());
-    command_list->DrawInstanced(model.vertex_count(), 1, 0, 0);
+    command_list->IASetVertexBuffers(0, 1, &model.geometry().view());
+    command_list->DrawInstanced(model.geometry().vertex_count(), 1, 0, 0);
   }
 
  private:
-  void create_root_signature(Device& d) {
-    std::array<D3D12_DESCRIPTOR_RANGE, 2> descriptor_range;
-    descriptor_range[0].NumDescriptors = 1;
-    descriptor_range[0].BaseShaderRegister = 0;
-    descriptor_range[0].OffsetInDescriptorsFromTableStart = 0;
-    descriptor_range[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_CBV;
-    descriptor_range[0].RegisterSpace = 0;
-    descriptor_range[1].NumDescriptors = 1;
-    descriptor_range[1].BaseShaderRegister = 0;
-    descriptor_range[1].OffsetInDescriptorsFromTableStart = 0;
-    descriptor_range[1].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
-    descriptor_range[1].RegisterSpace = 0;
+  void create_root_signature(
+      Device& d,
+      VertexShaderHandle const& vs,
+      FragmentShaderHandle const& fs) {
+    D3D12_DESCRIPTOR_RANGE1 view_data = {};
+    view_data.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_CBV;
+    view_data.NumDescriptors = 1;
+    view_data.BaseShaderRegister = 0;
+    view_data.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+    view_data.RegisterSpace = 0;
+    view_data.Flags = D3D12_DESCRIPTOR_RANGE_FLAG_NONE;
 
-    std::array<D3D12_ROOT_DESCRIPTOR_TABLE, 2> descriptor_table;
-    descriptor_table[0].NumDescriptorRanges = 1;
-    descriptor_table[0].pDescriptorRanges = &descriptor_range[0];
-    descriptor_table[1].NumDescriptorRanges = 1;
-    descriptor_table[1].pDescriptorRanges = &descriptor_range[1];
+    D3D12_DESCRIPTOR_RANGE1 albedo_data = {};
+    albedo_data.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+    albedo_data.NumDescriptors = 1;
+    albedo_data.BaseShaderRegister = 0;
+    albedo_data.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+    albedo_data.RegisterSpace = 0;
+    albedo_data.Flags = D3D12_DESCRIPTOR_RANGE_FLAG_NONE;
 
-    std::array<D3D12_ROOT_PARAMETER, 2> root_parameters = {};
-    root_parameters[0].DescriptorTable = descriptor_table[0];
-    root_parameters[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_VERTEX;
+    D3D12_DESCRIPTOR_RANGE1 light_data = {};
+    light_data.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_CBV;
+    light_data.NumDescriptors = 1;
+    light_data.BaseShaderRegister = 1;
+    light_data.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+    light_data.RegisterSpace = 0;
+    // light_data.Flags = D3D12_DESCRIPTOR_RANGE_FLAG_NONE;
+
+    std::array<D3D12_ROOT_PARAMETER1, 3> root_parameters = {};
     root_parameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
-    root_parameters[1].DescriptorTable = descriptor_table[1];
-    root_parameters[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+    root_parameters[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    root_parameters[0].DescriptorTable.NumDescriptorRanges = 1;
+    root_parameters[0].DescriptorTable.pDescriptorRanges = &view_data;
     root_parameters[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    root_parameters[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+    root_parameters[1].DescriptorTable.NumDescriptorRanges = 1;
+    root_parameters[1].DescriptorTable.pDescriptorRanges = &light_data;
+    root_parameters[2].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    root_parameters[2].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+    root_parameters[2].DescriptorTable.NumDescriptorRanges = 1;
+    root_parameters[2].DescriptorTable.pDescriptorRanges = &albedo_data;
 
     D3D12_STATIC_SAMPLER_DESC sampler = {};
     sampler.Filter = D3D12_FILTER_MIN_MAG_MIP_POINT;
@@ -1599,20 +1776,20 @@ class ForwardDraw : noncopyable {
     sampler.RegisterSpace = 0;
     sampler.ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
 
-    D3D12_ROOT_SIGNATURE_DESC desc = {};
-    desc.Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
-    desc.NumStaticSamplers = 1;
-    desc.pStaticSamplers = &sampler;
-    desc.NumParameters = root_parameters.size();
-    desc.pParameters = root_parameters.data();
+    D3D12_VERSIONED_ROOT_SIGNATURE_DESC desc = {};
+    desc.Version = D3D_ROOT_SIGNATURE_VERSION_1_1;
+    desc.Desc_1_1.Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
+    desc.Desc_1_1.NumStaticSamplers = 1;
+    desc.Desc_1_1.pStaticSamplers = &sampler;
+    desc.Desc_1_1.NumParameters = root_parameters.size();
+    desc.Desc_1_1.pParameters = root_parameters.data();
     CComPtr<ID3DBlob> signature;
     CComPtr<ID3DBlob> error;
     auto* device = d.get();
-    throw_error(D3D12SerializeRootSignature(
-        &desc,
-        D3D_ROOT_SIGNATURE_VERSION_1,
-        &signature,
-        &error));
+    if(S_OK != D3D12SerializeVersionedRootSignature(&desc, &signature, &error)) {
+      throw_exception(std::runtime_error(
+          static_cast<char const*>(error->GetBufferPointer())));
+    }
     throw_error(device->CreateRootSignature(
         0,
         signature->GetBufferPointer(),
@@ -1628,8 +1805,8 @@ class ForwardDraw : noncopyable {
     // clang-format off
     std::array<D3D12_INPUT_ELEMENT_DESC, 3> vertex_layout {{
         {"POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
-        {"NORMAL", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
-        {"TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 24, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+        {"NORMAL", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 16, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+        {"TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 32, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
     }};
     // clang-format on
 
@@ -1698,9 +1875,9 @@ class ForwardDraw : noncopyable {
   CComPtr<ID3D12PipelineState> pipeline_;
 };
 
-class ScreenSpaceDraw : noncopyable {
+class DrawImage : noncopyable {
  public:
-  ScreenSpaceDraw(
+  DrawImage(
       Device& d,
       VertexShaderHandle const& vertex_shader,
       FragmentShaderHandle const& pixel_shader) {
@@ -1719,27 +1896,21 @@ class ScreenSpaceDraw : noncopyable {
 
  private:
   void create_root_signature(Device& d) {
-    D3D12_DESCRIPTOR_RANGE descriptor_range = {};
-    descriptor_range.NumDescriptors = 1;
-    descriptor_range.BaseShaderRegister = 0;
-    descriptor_range.OffsetInDescriptorsFromTableStart = 0;
-    descriptor_range.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
-    descriptor_range.RegisterSpace = 0;
+    D3D12_DESCRIPTOR_RANGE texture = {};
+    texture.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+    texture.NumDescriptors = 1;
 
-    D3D12_ROOT_DESCRIPTOR_TABLE descriptor_table = {};
-    descriptor_table.NumDescriptorRanges = 1;
-    descriptor_table.pDescriptorRanges = &descriptor_range;
-
-    D3D12_ROOT_PARAMETER root_parameters = {};
-    root_parameters.DescriptorTable = descriptor_table;
-    root_parameters.ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
-    root_parameters.ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    D3D12_ROOT_PARAMETER root_table = {};
+    root_table.ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    root_table.ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+    root_table.DescriptorTable.NumDescriptorRanges = 1;
+    root_table.DescriptorTable.pDescriptorRanges = &texture;
 
     D3D12_STATIC_SAMPLER_DESC sampler = {};
     sampler.Filter = D3D12_FILTER_MIN_MAG_MIP_POINT;
-    sampler.AddressU = D3D12_TEXTURE_ADDRESS_MODE_BORDER;
-    sampler.AddressV = D3D12_TEXTURE_ADDRESS_MODE_BORDER;
-    sampler.AddressW = D3D12_TEXTURE_ADDRESS_MODE_BORDER;
+    sampler.AddressU = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
+    sampler.AddressV = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
+    sampler.AddressW = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
     sampler.MipLODBias = 0;
     sampler.MaxAnisotropy = 0;
     sampler.ComparisonFunc = D3D12_COMPARISON_FUNC_NEVER;
@@ -1755,7 +1926,7 @@ class ScreenSpaceDraw : noncopyable {
     desc.NumStaticSamplers = 1;
     desc.pStaticSamplers = &sampler;
     desc.NumParameters = 1;
-    desc.pParameters = &root_parameters;
+    desc.pParameters = &root_table;
     CComPtr<ID3DBlob> signature;
     CComPtr<ID3DBlob> error;
     auto* device = d.get();
@@ -1834,6 +2005,48 @@ class ScreenSpaceDraw : noncopyable {
   CComPtr<ID3D12PipelineState> pipeline_;
 };
 
+struct ShaderPointLight {
+  glm::vec3 position;
+  //float pad_;
+  glm::vec3 colour;
+  //float pad2_;
+};
+
+class PointLight {
+ public:
+  PointLight(float radius, float zenith, float azimuth)
+      : radius_(radius)
+      , zenith_(zenith)
+      , azimuth_(azimuth) {
+  }
+
+  void update() {
+    ImGui::SliderFloat("Radius", &radius_, 0.1f, 50.f);
+    ImGui::SliderAngle("Zenith", &zenith_, -360.f, 360.f, "%1.f");
+    ImGui::SliderAngle("Azimuth", &azimuth_, -360.f, 360.f, "%1.f");
+    ImGui::Checkbox("Enabled", &enabled_);
+    ImGui::ColorEdit3("Colour", &colour_.x);
+  }
+
+  glm::vec3 position() const {
+    return {
+        radius_ * glm::cos(zenith_) * glm::cos(azimuth_),
+        radius_ * glm::sin(zenith_),
+        radius_ * glm::cos(zenith_) * glm::sin(azimuth_)};
+  }
+
+  glm::vec3 colour() const {
+    return enabled_ ? colour_ : glm::vec3(0);
+  }
+
+ private:
+  glm::vec3 colour_{1};
+  float radius_ = 10;
+  float zenith_ = 0;
+  float azimuth_ = 0;
+  bool enabled_ = true;
+};
+
 std::vector<CComPtr<IDXGIAdapter>> get_adapters() {
   CComPtr<IDXGIFactory4> factory;
   throw_error(CreateDXGIFactory1(IID_PPV_ARGS(&factory)));
@@ -1857,12 +2070,74 @@ class Application : noncopyable {
   bool run() {
     LOG(Info) << "Running render loop";
     Device device(adapters_[adapter_index_]);
+    ResourceCreator resource_creator(device);
+    resource_creator.begin_loading();
+
+    ShaderCache<VertexShaderHandle> vertex_shaders("vs_5_0");
+    auto fullscreen_vs = vertex_shaders.add("fullscreen_quad", "VSMain");
+    auto static_model_vs = vertex_shaders.add("static_model", "VSMain");
+
+    ShaderCache<FragmentShaderHandle> fragment_shaders("ps_5_0");
+    auto fullscreen_ps = fragment_shaders.add("fullscreen_quad", "PSMain");
+    auto fullscreen_ps_inv = fragment_shaders.add(
+        "fullscreen_quad",
+        "PSMainInv");
+    auto albedo_ps = fragment_shaders.add("static_model", "Albedo");
+    auto phong_ps = fragment_shaders.add("static_model", "Phong");
+
+    DrawImage copy_image(device, fullscreen_vs, fullscreen_ps);
+    DrawImage copy_image_inv_alpha(device, fullscreen_vs, fullscreen_ps_inv);
+
+    Image background;
+    load(background, resource_creator, "assets/textures/test.jpg");
+
+    Geometry main_geometry;
+    load(main_geometry, resource_creator, "assets/models/cottage.obj");
+
+    Image main_albedo;
+    load(
+        main_albedo,
+        resource_creator,
+        "assets/textures/Cottage_Clean/Cottage_Clean_Base_Color.png");
+
+    Image main_normal;
+    load(
+        main_normal,
+        resource_creator,
+        "assets/textures/Cottage_Clean/Cottage_Clean_Normal.png");
+
+    Model main_model(main_geometry, main_albedo, main_normal);
+    resource_creator.finish_loading();
+
+    DrawModelForward forward_render(device, static_model_vs, phong_ps);
+    ShaderData view_data(device, sizeof(ViewShaderData));
+
+    std::vector<PointLight> lights;
+    lights.emplace_back(10.f, glm::radians(45.f), 0.f);
+    lights.emplace_back(10.f, glm::radians(45.f), glm::radians(135.f));
+    lights.emplace_back(10.f, glm::radians(45.f), glm::radians(-135.f));
+    ShaderData light_data(device, sizeof(ShaderPointLight) * lights.size());
+    for(int i = 0; i < lights.size(); ++i) {
+      auto&& light = lights[i];
+      ShaderPointLight shader_light;
+      shader_light.position = light.position();
+      shader_light.colour = light.colour();
+      light_data.write(
+          &shader_light,
+          sizeof(ShaderPointLight) * i,
+          sizeof(ShaderPointLight));
+    }
+
+    CComPtr<ID3D12GraphicsCommandList> command_list;
+    throw_error(device.get()->CreateCommandList1(
+        0,
+        D3D12_COMMAND_LIST_TYPE_DIRECT,
+        D3D12_COMMAND_LIST_FLAG_NONE,
+        IID_PPV_ARGS(&command_list)));
 
     int num_swapchain_images = 3;
     Swapchain swapchain = {device, window_, num_swapchain_images};
     DepthImage depth = create_depth_buffer(device);
-    ResourceCreator resource_creator(device);
-    resource_creator.begin_loading();
     std::vector<SubmissionContext> submission_context_list;
 
     int num_framesflight = 3;
@@ -1881,60 +2156,25 @@ class Application : noncopyable {
     }
 
     ImGuiState imgui(device, window_, swapchain.image_count());
-    ShaderCache<FragmentShaderHandle> fragment_shaders("ps_5_0");
-    fragment_shaders.add("fullscreen_quad", "PSMain");
-    fragment_shaders.add("fullscreen_quad", "PSMainInv");
-    fragment_shaders.add("static_model", "Albedo");
-    fragment_shaders.add("static_model", "Phong");
-    ShaderCache<VertexShaderHandle> vertex_shaders("vs_5_0");
-    vertex_shaders.add("fullscreen_quad", "VSMain");
-    vertex_shaders.add("static_model", "VSMain");
-
-    ScreenSpaceDraw copy_image(
-        device,
-        vertex_shaders.find("fullscreen_quad", "VSMain"),
-        fragment_shaders.find("fullscreen_quad", "PSMain"));
-    ScreenSpaceDraw copy_image_inv_alpha(
-        device,
-        vertex_shaders.find("fullscreen_quad", "VSMain"),
-        fragment_shaders.find("fullscreen_quad", "PSMainInv"));
-
-    Image background;
-    load(background, resource_creator, "assets/textures/test.jpg");
-
-    Model main_model;
-    load(main_model, resource_creator, "assets/models/cottage.obj");
-
-    Image main_albedo;
-    load(
-        main_albedo,
-        resource_creator,
-        "assets/textures/Cottage_Clean/Cottage_Clean_Base_Color.png");
-    resource_creator.finish_loading();
-
-    ForwardDraw forward_render(
-        device,
-        vertex_shaders.find("static_model", "VSMain"),
-        fragment_shaders.find("static_model", "Phong"));
-
-    ShaderData scene_data(device, sizeof(ViewShaderData));
-
-    CComPtr<ID3D12GraphicsCommandList> command_list;
-    throw_error(device.get()->CreateCommandList1(
-        0,
-        D3D12_COMMAND_LIST_TYPE_DIRECT,
-        D3D12_COMMAND_LIST_FLAG_NONE,
-        IID_PPV_ARGS(&command_list)));
 
     std::uint32_t frame_index = 0;
     auto last_frame_time = std::chrono::high_resolution_clock::now();
     while(!glfwWindowShouldClose(window_.glfw())) {
       glfwPollEvents();
 
-      if(handle_window_size(swapchain, render_context_list) ==
-         Window::SizeEvent::Changed) {
+      if(window_.handle_window_size() == Window::SizeEvent::Changed) {
+        swapchain.resize_swapchain(window_.width(), window_.height());
         imgui.create_image(window_.width(), window_.height());
         depth = create_depth_buffer(device);
+        render_context_list.clear();
+        render_context_list.resize(swapchain.image_count());
+        for(std::size_t i = 0; i < render_context_list.size(); ++i) {
+          auto&& rc = render_context_list[i];
+          rc.target(swapchain.target(i));
+          rc.scissor(0, window_.width(), 0, window_.height());
+          rc.viewport(window_.width(), window_.height());
+          rc.depth(depth);
+        }
       }
 
       imgui.update();
@@ -1959,6 +2199,24 @@ class Application : noncopyable {
             "Application average %.3f ms/frame (%.1f FPS)",
             1000.0f / ImGui::GetIO().Framerate,
             ImGui::GetIO().Framerate);
+
+        for(int i = 0; i < lights.size(); ++i) {
+          std::string light_name = "Light ";
+          light_name += std::to_string(i);
+          ImGui::PushID(light_name.c_str());
+          if(ImGui::CollapsingHeader(light_name.c_str())) {
+            auto&& light = lights[i];
+            light.update();
+            ShaderPointLight shader_light;
+            shader_light.position = light.position();
+            shader_light.colour = light.colour();
+            light_data.write(
+                &shader_light,
+                sizeof(ShaderPointLight) * i,
+                sizeof(ShaderPointLight));
+          }
+          ImGui::PopID();
+        }
         ImGui::End();
       }
 
@@ -1968,7 +2226,7 @@ class Application : noncopyable {
       last_frame_time = current;
 
       update_render(dT);
-      scene_data.write(&main_camera_, sizeof(main_camera_));
+      view_data.write(&main_camera_, sizeof(main_camera_));
 
       std::uint32_t next_frame_index = frame_index++;
       SubmissionContext& submission_context =
@@ -1984,7 +2242,7 @@ class Application : noncopyable {
       imgui.render(submission_context);
       render_context.begin_rendering(submission_context, clear_colour_);
       // copy_image.draw(submission_context, background);
-      forward_render.draw(submission_context, main_model, main_albedo, scene_data);
+      forward_render.draw(submission_context, main_model, view_data, light_data);
       copy_image_inv_alpha.draw(submission_context, imgui.target().image());
       render_context.finish_rendering(submission_context);
       submission_context.finish_rendering();
@@ -1996,7 +2254,7 @@ class Application : noncopyable {
   }
 
  private:
-  struct alignas(256) ViewShaderData {
+  struct ViewShaderData {
     glm::mat4 projection;
     glm::mat4 view;
     glm::mat4 model = glm::mat4(1.f);
@@ -2036,15 +2294,8 @@ class Application : noncopyable {
     if(!io.WantCaptureMouse) {
       if(io.MouseDown[ImGuiMouseButton_Left]) {
         if(io.MouseDelta.x || io.MouseDelta.y) {
-          glm::vec3 nudge_x, nudge_y;
-          if(glm::abs(glm::dot(look_, Scene::Up)) > 0.99f) {
-            nudge_y = glm::cross(Scene::Right, look_);
-            nudge_x = glm::cross(look_, nudge_y);
-          }
-          else {
-            nudge_x = glm::cross(look_, Scene::Up);
-            nudge_y = glm::cross(nudge_x, look_);
-          }
+          auto nudge_x = glm::cross(look_, Scene::Up);
+          auto nudge_y = glm::cross(nudge_x, look_);
           float rotation_scale = 0.5f;
           nudge_x *= dT * io.MouseDelta.x * rotation_scale;
           nudge_y *= dT * io.MouseDelta.y * rotation_scale;
@@ -2082,24 +2333,6 @@ class Application : noncopyable {
     }
 
     adapter_names_.push_back('\0');
-  }
-
-  Window::SizeEvent handle_window_size(
-      Swapchain& swapchain,
-      std::vector<RenderContext>& render_context_list) {
-    if(window_.handle_window_size() == Window::SizeEvent::Changed) {
-      swapchain.resize_swapchain(window_.width(), window_.height());
-      render_context_list.clear();
-      render_context_list.resize(swapchain.image_count());
-      for(std::size_t i = 0; i < render_context_list.size(); ++i) {
-        auto&& rc = render_context_list[i];
-        rc.target(swapchain.target(i));
-        rc.scissor(0, window_.width(), 0, window_.height());
-        rc.viewport(window_.width(), window_.height());
-      }
-      return Window::SizeEvent::Changed;
-    }
-    return Window::SizeEvent::None;
   }
 
   DepthImage create_depth_buffer(Device& d) const {
@@ -2174,8 +2407,14 @@ int main(int, char**) {
 
   Window window;
   Application app(window);
-  while(app.run())
-    ;
+
+  try {
+    while(app.run())
+      ;
+  }
+  catch(std::exception& e) {
+    std::cerr << e.what() << std::endl;
+  }
 
   return 0;
 }

@@ -21,6 +21,7 @@ struct VSInput {
 struct PSInput {
   float4 position : SV_POSITION;
   float3 normal : NORMAL;
+  float3 position_world : POSITIONT;
   float2 uv : TEXCOORD;
 };
 
@@ -30,17 +31,27 @@ cbuffer Scene : register(b0) {
   float4x4 g_model;
 };
 
+struct Light {
+  float3 position;
+  float3 colour;
+};
+
+static const int kNumLights = 3;
+cbuffer Lights : register(b1) {
+  Light g_lights[kNumLights];
+};
+
 PSInput VSMain(VSInput input) {
   PSInput result;
   float4x4 view_projection = mul(g_projection, g_view);
   float4x4 model_view_projection = mul(view_projection, g_model);
   result.position = mul(model_view_projection, float4(input.position, 1.0));
   float4x4 model_view = mul(g_view, g_model);
-  result.normal = mul(model_view, input.normal).xyz;
+  result.normal = mul((float3x3)model_view, input.normal).xyz;
+  result.position_world = mul((float3x3)g_model, input.position).xyz;
   result.uv = input.uv;
   return result;
 }
-
 
 Texture2D g_texture : register(t0);
 SamplerState g_sampler : register(s0);
@@ -53,26 +64,38 @@ float4 Albedo(PSInput input)
 
 float4 Phong(PSInput input)
     : SV_TARGET {
-  float3 point_light = float3(10, -10, 0);
-  float3 light_dir = point_light - input.position.xyz;
-  float light_distance = length(light_dir);
-  float n_dot_l = dot(input.normal, light_dir);
-  n_dot_l = max(0.f, n_dot_l);
-
-  float phong = 0.f;
-  if(n_dot_l > 0.f) {
-    float3 view = g_view[3].xyz;
-    float3 ref = reflect(-light_dir, input.normal);
-    float phong = dot(view, ref);
-    phong = clamp(phong, 0.f, 1.f);
-    phong = pow(phong, 16.f);
-  }
-
+  float3 final_colour = float3(0, 0, 0);
   float3 albedo = g_texture.Sample(g_sampler, input.uv).xyz;
-  float attenuation = 1.f / light_distance;
-  float3 spec_colour = float3(0.f, 0.f, 1.f);
+  float3 view = g_view[3].xyz;
   float ambient = 0.2f;
-  float3 lighted = (albedo * attenuation * n_dot_l) +
-                   (spec_colour * attenuation * phong) + (albedo * ambient);
-  return float4(lighted, 1.f);
+  float light_power = 50;
+  float4x4 model_view = mul(g_view, g_model);
+  for(int i = 0; i < 1; ++i) {
+    float3 light_dir_ws = (g_lights[i].position - input.position_world).xyz;
+    float light_distance = length(light_dir_ws);
+    float3 light_dir_vs = normalize(mul(g_view, float4(g_lights[i].position, 0)).xyz);
+    float n_dot_l = dot(normalize(input.normal), light_dir_vs);
+    n_dot_l = max(0.f, n_dot_l);
+
+    float phong = 0.f;
+    if(n_dot_l > 0.f) {
+      float3 ref = reflect(-light_dir_vs, normalize(input.normal));
+      float phong = dot(view, ref);
+      phong = clamp(phong, 0.f, 1.f);
+      phong = pow(phong, 5.f);
+    }
+
+    float attenuation = 1.f / (light_distance * light_distance);
+    float3 spec_colour = float3(0.3f, 0.3f, 0.3f);
+    float3 colour = albedo * n_dot_l;
+    float3 specular = spec_colour * phong;
+    float3 lighted = colour + specular;
+    lighted *= light_power * g_lights[i].colour * attenuation;
+
+    final_colour = lighted;
+  }
+  float3 ambient_colour = albedo * ambient;
+
+  final_colour += ambient_colour;
+  return float4(final_colour, 1.f);
 }
