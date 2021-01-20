@@ -46,8 +46,8 @@
 #include <sstream>
 #include <string>
 #include <string_view>
-#include <vector>
 #include <unordered_map>
+#include <vector>
 #include "imgui.h"
 #include "imgui_impl_dx12.h"
 #include "imgui_impl_glfw.h"
@@ -1449,7 +1449,7 @@ class Swapchain : noncopyable {
   }
 
   void present(SubmissionContext& sc) {
-    swapchain_->Present(1, 0); // 1=With vsync
+    swapchain_->Present(0, 0); // 1=With vsync
     UINT64 signal_value = ++current_present_fence_value_;
     throw_error(device_.graphics_queue()->Signal(present_fence_, signal_value));
     sc.present_fence_value(signal_value);
@@ -1706,12 +1706,14 @@ class DrawModelForward : noncopyable {
       SubmissionContext& sc,
       Model const& model,
       ShaderData const& view_data,
+      ShaderData const& object_data,
       ShaderData const& lighting_data) {
     auto* command_list = sc.command_list();
     command_list->SetGraphicsRootSignature(root_signature_);
     command_list->SetGraphicsRootDescriptorTable(0, view_data.view().gpu());
-    command_list->SetGraphicsRootDescriptorTable(1, lighting_data.view().gpu());
-    command_list->SetGraphicsRootDescriptorTable(2, model.albedo().view().gpu());
+    command_list->SetGraphicsRootDescriptorTable(1, object_data.view().gpu());
+    command_list->SetGraphicsRootDescriptorTable(2, lighting_data.view().gpu());
+    command_list->SetGraphicsRootDescriptorTable(3, model.albedo().view().gpu());
     command_list->SetPipelineState(pipeline_);
     command_list->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
     command_list->IASetVertexBuffers(0, 1, &model.geometry().view());
@@ -1731,6 +1733,14 @@ class DrawModelForward : noncopyable {
     view_data.RegisterSpace = 0;
     view_data.Flags = D3D12_DESCRIPTOR_RANGE_FLAG_NONE;
 
+    D3D12_DESCRIPTOR_RANGE1 object_data = {};
+    object_data.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_CBV;
+    object_data.NumDescriptors = 1;
+    object_data.BaseShaderRegister = 1;
+    object_data.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+    object_data.RegisterSpace = 0;
+    object_data.Flags = D3D12_DESCRIPTOR_RANGE_FLAG_NONE;
+
     D3D12_DESCRIPTOR_RANGE1 albedo_data = {};
     albedo_data.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
     albedo_data.NumDescriptors = 1;
@@ -1742,24 +1752,28 @@ class DrawModelForward : noncopyable {
     D3D12_DESCRIPTOR_RANGE1 light_data = {};
     light_data.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_CBV;
     light_data.NumDescriptors = 1;
-    light_data.BaseShaderRegister = 1;
+    light_data.BaseShaderRegister = 2;
     light_data.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
     light_data.RegisterSpace = 0;
-    // light_data.Flags = D3D12_DESCRIPTOR_RANGE_FLAG_NONE;
+    view_data.Flags = D3D12_DESCRIPTOR_RANGE_FLAG_NONE;
 
-    std::array<D3D12_ROOT_PARAMETER1, 3> root_parameters = {};
+    std::array<D3D12_ROOT_PARAMETER1, 4> root_parameters = {};
     root_parameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
     root_parameters[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
     root_parameters[0].DescriptorTable.NumDescriptorRanges = 1;
     root_parameters[0].DescriptorTable.pDescriptorRanges = &view_data;
     root_parameters[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
-    root_parameters[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+    root_parameters[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
     root_parameters[1].DescriptorTable.NumDescriptorRanges = 1;
-    root_parameters[1].DescriptorTable.pDescriptorRanges = &light_data;
+    root_parameters[1].DescriptorTable.pDescriptorRanges = &object_data;
     root_parameters[2].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
     root_parameters[2].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
     root_parameters[2].DescriptorTable.NumDescriptorRanges = 1;
-    root_parameters[2].DescriptorTable.pDescriptorRanges = &albedo_data;
+    root_parameters[2].DescriptorTable.pDescriptorRanges = &light_data;
+    root_parameters[3].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    root_parameters[3].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+    root_parameters[3].DescriptorTable.NumDescriptorRanges = 1;
+    root_parameters[3].DescriptorTable.pDescriptorRanges = &albedo_data;
 
     D3D12_STATIC_SAMPLER_DESC sampler = {};
     sampler.Filter = D3D12_FILTER_MIN_MAG_MIP_POINT;
@@ -1848,6 +1862,161 @@ class DrawModelForward : noncopyable {
     D3D12_DEPTH_STENCIL_DESC ds_desc = {};
     ds_desc.DepthEnable = TRUE;
     ds_desc.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ALL;
+    ds_desc.DepthFunc = D3D12_COMPARISON_FUNC_LESS;
+    ds_desc.StencilEnable = FALSE;
+
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc = {};
+    pso_desc.InputLayout = {vertex_layout.data(), vertex_layout.size()};
+    pso_desc.pRootSignature = root_signature_;
+    pso_desc.VS = vs_bytecode;
+    pso_desc.PS = ps_bytecode;
+    pso_desc.RasterizerState = raster_desc;
+    pso_desc.BlendState = blend_desc;
+    pso_desc.DepthStencilState = ds_desc;
+    pso_desc.SampleMask = UINT_MAX;
+    pso_desc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+    pso_desc.NumRenderTargets = 1;
+    pso_desc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
+    pso_desc.DSVFormat = DXGI_FORMAT_D32_FLOAT;
+    pso_desc.SampleDesc.Count = 1;
+
+    auto* device = d.get();
+    throw_error(
+        device->CreateGraphicsPipelineState(&pso_desc, IID_PPV_ARGS(&pipeline_)));
+  }
+
+  CComPtr<ID3D12RootSignature> root_signature_;
+  CComPtr<ID3D12PipelineState> pipeline_;
+};
+
+class DrawDebugGeometry : noncopyable {
+ public:
+  DrawDebugGeometry(
+      Device& d,
+      VertexShaderHandle const& vertex_shader,
+      FragmentShaderHandle const& pixel_shader) {
+    create_root_signature(d, vertex_shader, pixel_shader);
+    create_pipeline(d, vertex_shader, pixel_shader);
+  }
+
+  void draw(
+      SubmissionContext& sc,
+      Geometry const& geo,
+      ShaderData const& view_data,
+      ShaderData const& object_data) {
+    auto* command_list = sc.command_list();
+    command_list->SetGraphicsRootSignature(root_signature_);
+    command_list->SetGraphicsRootDescriptorTable(0, view_data.view().gpu());
+    command_list->SetGraphicsRootDescriptorTable(1, object_data.view().gpu());
+    command_list->SetPipelineState(pipeline_);
+    command_list->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    command_list->IASetVertexBuffers(0, 1, &geo.view());
+    command_list->DrawInstanced(geo.vertex_count(), 1, 0, 0);
+  }
+
+ private:
+  void create_root_signature(
+      Device& d,
+      VertexShaderHandle const& vs,
+      FragmentShaderHandle const& fs) {
+    D3D12_DESCRIPTOR_RANGE1 view_data = {};
+    view_data.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_CBV;
+    view_data.NumDescriptors = 1;
+    view_data.BaseShaderRegister = 0;
+    view_data.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+    view_data.RegisterSpace = 0;
+    view_data.Flags = D3D12_DESCRIPTOR_RANGE_FLAG_NONE;
+
+    D3D12_DESCRIPTOR_RANGE1 object_data = {};
+    object_data.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_CBV;
+    object_data.NumDescriptors = 1;
+    object_data.BaseShaderRegister = 1;
+    object_data.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+    object_data.RegisterSpace = 0;
+    object_data.Flags = D3D12_DESCRIPTOR_RANGE_FLAG_NONE;
+
+    std::array<D3D12_ROOT_PARAMETER1, 2> root_parameters = {};
+    root_parameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    root_parameters[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    root_parameters[0].DescriptorTable.NumDescriptorRanges = 1;
+    root_parameters[0].DescriptorTable.pDescriptorRanges = &view_data;
+    root_parameters[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    root_parameters[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    root_parameters[1].DescriptorTable.NumDescriptorRanges = 1;
+    root_parameters[1].DescriptorTable.pDescriptorRanges = &object_data;
+
+    D3D12_VERSIONED_ROOT_SIGNATURE_DESC desc = {};
+    desc.Version = D3D_ROOT_SIGNATURE_VERSION_1_1;
+    desc.Desc_1_1.Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
+    desc.Desc_1_1.NumStaticSamplers = 0;
+    desc.Desc_1_1.pStaticSamplers = nullptr;
+    desc.Desc_1_1.NumParameters = root_parameters.size();
+    desc.Desc_1_1.pParameters = root_parameters.data();
+    CComPtr<ID3DBlob> signature;
+    CComPtr<ID3DBlob> error;
+    auto* device = d.get();
+    if(S_OK != D3D12SerializeVersionedRootSignature(&desc, &signature, &error)) {
+      throw_exception(std::runtime_error(
+          static_cast<char const*>(error->GetBufferPointer())));
+    }
+    throw_error(device->CreateRootSignature(
+        0,
+        signature->GetBufferPointer(),
+        signature->GetBufferSize(),
+        IID_PPV_ARGS(&root_signature_)));
+  }
+
+  void create_pipeline(
+      Device& d,
+      VertexShaderHandle const& vs,
+      FragmentShaderHandle const& fs) {
+    // We currently only support one vertex format.
+    // clang-format off
+    std::array<D3D12_INPUT_ELEMENT_DESC, 3> vertex_layout {{
+        {"POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+        {"NORMAL", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 16, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+        {"TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 32, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+    }};
+    // clang-format on
+
+    D3D12_SHADER_BYTECODE vs_bytecode = {};
+    vs_bytecode.pShaderBytecode = vs.code()->GetBufferPointer();
+    vs_bytecode.BytecodeLength = vs.code()->GetBufferSize();
+
+    D3D12_SHADER_BYTECODE ps_bytecode = {};
+    ps_bytecode.pShaderBytecode = fs.code()->GetBufferPointer();
+    ps_bytecode.BytecodeLength = fs.code()->GetBufferSize();
+
+    D3D12_RASTERIZER_DESC raster_desc = {};
+    raster_desc.FillMode = D3D12_FILL_MODE_WIREFRAME;
+    raster_desc.CullMode = D3D12_CULL_MODE_NONE;
+    raster_desc.FrontCounterClockwise = FALSE;
+    raster_desc.DepthBias = D3D12_DEFAULT_DEPTH_BIAS;
+    raster_desc.DepthBiasClamp = D3D12_DEFAULT_DEPTH_BIAS_CLAMP;
+    raster_desc.SlopeScaledDepthBias = D3D12_DEFAULT_SLOPE_SCALED_DEPTH_BIAS;
+    raster_desc.DepthClipEnable = TRUE;
+    raster_desc.MultisampleEnable = FALSE;
+    raster_desc.AntialiasedLineEnable = FALSE;
+    raster_desc.ForcedSampleCount = 0;
+    raster_desc.ConservativeRaster = D3D12_CONSERVATIVE_RASTERIZATION_MODE_OFF;
+
+    D3D12_BLEND_DESC blend_desc = {};
+    blend_desc.AlphaToCoverageEnable = FALSE;
+    blend_desc.IndependentBlendEnable = FALSE;
+    blend_desc.RenderTarget[0].BlendEnable = TRUE;
+    blend_desc.RenderTarget[0].LogicOpEnable = FALSE;
+    blend_desc.RenderTarget[0].SrcBlend = D3D12_BLEND_SRC_ALPHA;
+    blend_desc.RenderTarget[0].DestBlend = D3D12_BLEND_INV_SRC_ALPHA;
+    blend_desc.RenderTarget[0].BlendOp = D3D12_BLEND_OP_ADD;
+    blend_desc.RenderTarget[0].SrcBlendAlpha = D3D12_BLEND_ONE;
+    blend_desc.RenderTarget[0].DestBlendAlpha = D3D12_BLEND_ONE;
+    blend_desc.RenderTarget[0].BlendOpAlpha = D3D12_BLEND_OP_ADD;
+    blend_desc.RenderTarget[0].LogicOp = D3D12_LOGIC_OP_NOOP;
+    blend_desc.RenderTarget[0].RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
+
+    D3D12_DEPTH_STENCIL_DESC ds_desc = {};
+    ds_desc.DepthEnable = TRUE;
+    ds_desc.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ZERO;
     ds_desc.DepthFunc = D3D12_COMPARISON_FUNC_LESS;
     ds_desc.StencilEnable = FALSE;
 
@@ -2007,9 +2176,7 @@ class DrawImage : noncopyable {
 
 struct ShaderPointLight {
   glm::vec3 position;
-  //float pad_;
   glm::vec3 colour;
-  //float pad2_;
 };
 
 class PointLight {
@@ -2020,11 +2187,12 @@ class PointLight {
       , azimuth_(azimuth) {
   }
 
-  void update() {
+  void update_debug_ui() {
     ImGui::SliderFloat("Radius", &radius_, 0.1f, 50.f);
     ImGui::SliderAngle("Zenith", &zenith_, -360.f, 360.f, "%1.f");
     ImGui::SliderAngle("Azimuth", &azimuth_, -360.f, 360.f, "%1.f");
     ImGui::Checkbox("Enabled", &enabled_);
+    ImGui::SliderFloat("Power", &power_, 0, 100);
     ImGui::ColorEdit3("Colour", &colour_.x);
   }
 
@@ -2036,7 +2204,7 @@ class PointLight {
   }
 
   glm::vec3 colour() const {
-    return enabled_ ? colour_ : glm::vec3(0);
+    return enabled_ ? colour_ * power_ : glm::vec3(0);
   }
 
  private:
@@ -2044,6 +2212,7 @@ class PointLight {
   float radius_ = 10;
   float zenith_ = 0;
   float azimuth_ = 0;
+  float power_ = 10;
   bool enabled_ = true;
 };
 
@@ -2084,6 +2253,7 @@ class Application : noncopyable {
         "PSMainInv");
     auto albedo_ps = fragment_shaders.add("static_model", "Albedo");
     auto phong_ps = fragment_shaders.add("static_model", "Phong");
+    auto debug_ps = fragment_shaders.add("static_model", "Debug");
 
     DrawImage copy_image(device, fullscreen_vs, fullscreen_ps);
     DrawImage copy_image_inv_alpha(device, fullscreen_vs, fullscreen_ps_inv);
@@ -2106,17 +2276,28 @@ class Application : noncopyable {
         resource_creator,
         "assets/textures/Cottage_Clean/Cottage_Clean_Normal.png");
 
+    Geometry debug_sphere;
+    load(debug_sphere, resource_creator, "assets/models/sphere.obj");
+
     Model main_model(main_geometry, main_albedo, main_normal);
     resource_creator.finish_loading();
 
     DrawModelForward forward_render(device, static_model_vs, phong_ps);
+    DrawDebugGeometry debug_draw(device, static_model_vs, debug_ps);
+
     ShaderData view_data(device, sizeof(ViewShaderData));
+    ShaderData object_data(device, sizeof(ObjectShaderData));
 
     std::vector<PointLight> lights;
     lights.emplace_back(10.f, glm::radians(45.f), 0.f);
     lights.emplace_back(10.f, glm::radians(45.f), glm::radians(135.f));
     lights.emplace_back(10.f, glm::radians(45.f), glm::radians(-135.f));
     ShaderData light_data(device, sizeof(ShaderPointLight) * lights.size());
+    std::vector<ShaderData> light_positions;
+    light_positions.emplace_back(device, sizeof(ObjectShaderData));
+    light_positions.emplace_back(device, sizeof(ObjectShaderData));
+    light_positions.emplace_back(device, sizeof(ObjectShaderData));
+
     for(int i = 0; i < lights.size(); ++i) {
       auto&& light = lights[i];
       ShaderPointLight shader_light;
@@ -2126,6 +2307,9 @@ class Application : noncopyable {
           &shader_light,
           sizeof(ShaderPointLight) * i,
           sizeof(ShaderPointLight));
+
+      glm::mat4 world_light = glm::translate(glm::mat4(1), shader_light.position);
+      light_positions[i].write(&world_light, sizeof(world_light));
     }
 
     CComPtr<ID3D12GraphicsCommandList> command_list;
@@ -2200,13 +2384,14 @@ class Application : noncopyable {
             1000.0f / ImGui::GetIO().Framerate,
             ImGui::GetIO().Framerate);
 
+        ImGui::Checkbox("Debug Lights", &debug_lights_);
         for(int i = 0; i < lights.size(); ++i) {
           std::string light_name = "Light ";
           light_name += std::to_string(i);
           ImGui::PushID(light_name.c_str());
           if(ImGui::CollapsingHeader(light_name.c_str())) {
             auto&& light = lights[i];
-            light.update();
+            light.update_debug_ui();
             ShaderPointLight shader_light;
             shader_light.position = light.position();
             shader_light.colour = light.colour();
@@ -2214,6 +2399,9 @@ class Application : noncopyable {
                 &shader_light,
                 sizeof(ShaderPointLight) * i,
                 sizeof(ShaderPointLight));
+
+            glm::mat4 world_light = glm::translate(glm::mat4(1), shader_light.position);
+            light_positions[i].write(&world_light, sizeof(world_light));
           }
           ImGui::PopID();
         }
@@ -2222,11 +2410,12 @@ class Application : noncopyable {
 
       auto current = std::chrono::high_resolution_clock::now();
       float dT = std::chrono::duration<float>(current - last_frame_time).count();
-      dT = std::clamp(dT, 0.01f, 0.05f);
+      dT = std::clamp(dT, 0.0001f, 0.05f);
       last_frame_time = current;
 
       update_render(dT);
       view_data.write(&main_camera_, sizeof(main_camera_));
+      object_data.write(&main_object_, sizeof(main_object_));
 
       std::uint32_t next_frame_index = frame_index++;
       SubmissionContext& submission_context =
@@ -2242,7 +2431,14 @@ class Application : noncopyable {
       imgui.render(submission_context);
       render_context.begin_rendering(submission_context, clear_colour_);
       // copy_image.draw(submission_context, background);
-      forward_render.draw(submission_context, main_model, view_data, light_data);
+      forward_render.draw(submission_context, main_model, view_data, object_data, light_data);
+
+      if(debug_lights_) {
+        for(auto&& light : light_positions) {
+          debug_draw.draw(submission_context, debug_sphere, view_data, light);
+        }
+      }
+
       copy_image_inv_alpha.draw(submission_context, imgui.target().image());
       render_context.finish_rendering(submission_context);
       submission_context.finish_rendering();
@@ -2257,7 +2453,10 @@ class Application : noncopyable {
   struct ViewShaderData {
     glm::mat4 projection;
     glm::mat4 view;
-    glm::mat4 model = glm::mat4(1.f);
+  };
+
+  struct ObjectShaderData {
+    glm::mat4 model{1};
   };
 
   void update_render(float dT) {
@@ -2286,8 +2485,8 @@ class Application : noncopyable {
     }
 
     if(enable_rotation_) {
-      main_camera_.model =
-          glm::rotate(main_camera_.model, dT * rotation_speed_, Scene::Up);
+      main_object_.model =
+          glm::rotate(main_object_.model, dT * rotation_speed_, Scene::Up);
     }
 
     auto& io = ImGui::GetIO();
@@ -2296,9 +2495,9 @@ class Application : noncopyable {
         if(io.MouseDelta.x || io.MouseDelta.y) {
           auto nudge_x = glm::cross(look_, Scene::Up);
           auto nudge_y = glm::cross(nudge_x, look_);
-          float rotation_scale = 0.5f;
-          nudge_x *= dT * io.MouseDelta.x * rotation_scale;
-          nudge_y *= dT * io.MouseDelta.y * rotation_scale;
+          float rotation_scale = 2.f;
+          nudge_x *= (io.MouseDelta.x / (window_.height() * 0.5f)) * rotation_scale;
+          nudge_y *= (io.MouseDelta.y / (window_.width() * 0.5f)) * rotation_scale;
           look_ += nudge_x;
           look_ += nudge_y;
           look_ = glm::normalize(look_);
@@ -2372,10 +2571,12 @@ class Application : noncopyable {
   Device* device_ = nullptr;
   DepthImage* depth_ = nullptr;
   ViewShaderData main_camera_;
+  ObjectShaderData main_object_;
   float main_camera_distance_ = 20.f;
   glm::vec3 look_{0, 0, -1};
   float rotation_speed_ = glm::radians(90.f);
   bool enable_rotation_ = true;
+  bool debug_lights_ = false;
 };
 
 static void glfw_error_callback(int error, const char* description) {

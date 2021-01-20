@@ -28,7 +28,10 @@ struct PSInput {
 cbuffer Scene : register(b0) {
   float4x4 g_projection;
   float4x4 g_view;
-  float4x4 g_model;
+};
+
+cbuffer Object : register(b1) {
+  float4x4 g_world;
 };
 
 struct Light {
@@ -37,24 +40,29 @@ struct Light {
 };
 
 static const int kNumLights = 3;
-cbuffer Lights : register(b1) {
+cbuffer Lights : register(b2) {
   Light g_lights[kNumLights];
 };
 
 PSInput VSMain(VSInput input) {
   PSInput result;
   float4x4 view_projection = mul(g_projection, g_view);
-  float4x4 model_view_projection = mul(view_projection, g_model);
-  result.position = mul(model_view_projection, float4(input.position, 1.0));
-  float4x4 model_view = mul(g_view, g_model);
-  result.normal = mul((float3x3)model_view, input.normal).xyz;
-  result.position_world = mul((float3x3)g_model, input.position).xyz;
+  float4x4 world_view_projection = mul(view_projection, g_world);
+  result.position = mul(world_view_projection, float4(input.position, 1.0));
+  float4x4 world_view = mul(g_view, g_world);
+  result.normal = mul((float3x3)world_view, input.normal).xyz;
+  result.position_world = mul((float3x3)g_world, input.position).xyz;
   result.uv = input.uv;
   return result;
 }
 
 Texture2D g_texture : register(t0);
 SamplerState g_sampler : register(s0);
+
+float4 Debug(PSInput input)
+    : SV_TARGET {
+  return float4(1, 0, 0, 1);
+}
 
 float4 Albedo(PSInput input)
     : SV_TARGET {
@@ -68,9 +76,8 @@ float4 Phong(PSInput input)
   float3 albedo = g_texture.Sample(g_sampler, input.uv).xyz;
   float3 view = g_view[3].xyz;
   float ambient = 0.2f;
-  float light_power = 50;
-  float4x4 model_view = mul(g_view, g_model);
-  for(int i = 0; i < 1; ++i) {
+  float4x4 world_view = mul(g_view, g_world);
+  for(int i = 0; i < kNumLights; ++i) {
     float3 light_dir_ws = (g_lights[i].position - input.position_world).xyz;
     float light_distance = length(light_dir_ws);
     float3 light_dir_vs = normalize(mul(g_view, float4(g_lights[i].position, 0)).xyz);
@@ -90,9 +97,8 @@ float4 Phong(PSInput input)
     float3 colour = albedo * n_dot_l;
     float3 specular = spec_colour * phong;
     float3 lighted = colour + specular;
-    lighted *= light_power * g_lights[i].colour * attenuation;
-
-    final_colour = lighted;
+    lighted *= g_lights[i].colour * attenuation;
+    final_colour += lighted;
   }
   float3 ambient_colour = albedo * ambient;
 
