@@ -45,6 +45,7 @@
 #include <iostream>
 #include <queue>
 #include <sstream>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -104,12 +105,17 @@ void throw_exception(Ex e) {
   throw e;
 }
 
-void throw_error(HRESULT r) {
-  if(r != S_OK) {
+void throw_runtime_error(char const* format) {
+  throw_exception(std::runtime_error(format));
+}
+
+void check_hr(HRESULT r, std::string_view message = "unknown failure") {
+  if(FAILED(r)) {
     int err = ::GetLastError();
     std::stringstream msg;
-    msg << "Error: hr=" << r << ", GetLastError=" << err;
-    throw std::runtime_error(msg.str());
+    msg << "HRESULT: " << message << " (Error: hr=" << r
+        << ", GetLastError=" << err << ")";
+    throw_exception(std::runtime_error(msg.str()));
   }
 }
 
@@ -255,7 +261,7 @@ class DescriptorPool : noncopyable {
     desc.Type = type;
     desc.NumDescriptors = count;
     desc.Flags = flags;
-    throw_error(device->CreateDescriptorHeap(&desc, IID_PPV_ARGS(&heap_)));
+    check_hr(device->CreateDescriptorHeap(&desc, IID_PPV_ARGS(&heap_)));
     cache_descriptor_handles(device, desc);
   }
 
@@ -392,7 +398,7 @@ class Device : noncopyable {
 #endif
 
       D3D_FEATURE_LEVEL featureLevel = D3D_FEATURE_LEVEL_11_0;
-      throw_error(D3D12CreateDevice(adapter, featureLevel, IID_PPV_ARGS(&ptr)));
+      check_hr(D3D12CreateDevice(adapter, featureLevel, IID_PPV_ARGS(&ptr)));
 
 #if RNDRX_ENABLE_DX12_DEBUG_LAYER
       if(dx12_debug) {
@@ -413,7 +419,7 @@ class Device : noncopyable {
     desc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
     desc.Flags = D3D12_COMMAND_QUEUE_FLAG_NONE;
     auto* device = get();
-    throw_error(device->CreateCommandQueue(&desc, IID_PPV_ARGS(&graphics_queue_)));
+    check_hr(device->CreateCommandQueue(&desc, IID_PPV_ARGS(&graphics_queue_)));
   }
 
   void cache_heap_properties() {
@@ -435,7 +441,7 @@ class SubmissionContext : noncopyable {
  public:
   SubmissionContext(Device& device)
       : device_(device) {
-    throw_error(device_.get()->CreateCommandAllocator(
+    check_hr(device_.get()->CreateCommandAllocator(
         D3D12_COMMAND_LIST_TYPE_DIRECT,
         IID_PPV_ARGS(&command_allocator_)));
   }
@@ -449,7 +455,7 @@ class SubmissionContext : noncopyable {
   }
 
   void begin_frame() {
-    throw_error(command_allocator_->Reset());
+    check_hr(command_allocator_->Reset());
   }
 
   void begin_rendering(ID3D12GraphicsCommandList* command_list) {
@@ -460,7 +466,7 @@ class SubmissionContext : noncopyable {
   }
 
   void finish_rendering() {
-    throw_error(command_list_->Close());
+    check_hr(command_list_->Close());
     std::array<ID3D12CommandList*, 1> commands = {command_list_};
     device_.graphics_queue()->ExecuteCommandLists(commands.size(), commands.data());
     command_list_ = nullptr;
@@ -506,7 +512,7 @@ class ResourceCreator : noncopyable {
     desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
 
     CComPtr<ID3D12Resource> image;
-    throw_error(device_.get()->CreateCommittedResource(
+    check_hr(device_.get()->CreateCommittedResource(
         &device_.resource_heap(),
         D3D12_HEAP_FLAG_NONE,
         &desc,
@@ -533,7 +539,7 @@ class ResourceCreator : noncopyable {
     desc.Flags = D3D12_RESOURCE_FLAG_NONE;
 
     CComPtr<ID3D12Resource> vertex_buffer;
-    throw_error(device_.get()->CreateCommittedResource(
+    check_hr(device_.get()->CreateCommittedResource(
         &device_.resource_heap(),
         D3D12_HEAP_FLAG_NONE,
         &desc,
@@ -545,7 +551,7 @@ class ResourceCreator : noncopyable {
   }
 
   void reset() {
-    throw_error(command_allocator_->Reset());
+    check_hr(command_allocator_->Reset());
   }
 
   void begin_loading() {
@@ -553,11 +559,11 @@ class ResourceCreator : noncopyable {
   }
 
   void finish_loading() {
-    throw_error(command_list_->Close());
+    check_hr(command_list_->Close());
     std::array<ID3D12CommandList*, 1> commands = {command_list_};
     copy_queue_->ExecuteCommandLists(commands.size(), commands.data());
     std::uint64_t signal_value = ++current_fence_value_;
-    throw_error(copy_queue_->Signal(copy_fence_, signal_value));
+    check_hr(copy_queue_->Signal(copy_fence_, signal_value));
   }
 
   ID3D12CommandQueue* copy_queue() const {
@@ -585,7 +591,7 @@ class ResourceCreator : noncopyable {
     auto completed_value = copy_fence_->GetCompletedValue();
     if(completed_value < current_fence_value_) {
       completed_value = current_fence_value_;
-      throw_error(
+      check_hr(
           copy_fence_->SetEventOnCompletion(completed_value, copy_fence_event_));
       WaitForSingleObject(copy_fence_event_, INFINITE);
     }
@@ -601,7 +607,7 @@ class ResourceCreator : noncopyable {
     auto completed_value = copy_fence_->GetCompletedValue();
     if(completed_value < current_fence_value_) {
       completed_value = current_fence_value_;
-      throw_error(
+      check_hr(
           copy_fence_->SetEventOnCompletion(completed_value, copy_fence_event_));
       WaitForSingleObject(copy_fence_event_, INFINITE);
     }
@@ -631,7 +637,7 @@ class ResourceCreator : noncopyable {
     CComPtr<ID3D12Device> device = nullptr;
     destination->GetDevice(IID_PPV_ARGS(&device));
     CComPtr<ID3D12Resource> staging_resource;
-    throw_error(device->CreateCommittedResource(
+    check_hr(device->CreateCommittedResource(
         &device_.upload_heap(),
         D3D12_HEAP_FLAG_NONE,
         &desc,
@@ -690,8 +696,7 @@ class ResourceCreator : noncopyable {
     D3D12_RANGE read_range;
     read_range.Begin = 0;
     read_range.End = 0;
-    throw_error(
-        staging->Map(0, &read_range, reinterpret_cast<void**>(&staging_mem)));
+    check_hr(staging->Map(0, &read_range, reinterpret_cast<void**>(&staging_mem)));
     for(int i = 0; i < count; ++i) {
       D3D12_MEMCPY_DEST dest_data = {
           staging_mem + layouts[i].Offset,
@@ -777,11 +782,11 @@ class ResourceCreator : noncopyable {
  private:
   void create_command_list() {
     auto* device = device_.get();
-    throw_error(device->CreateCommandAllocator(
+    check_hr(device->CreateCommandAllocator(
         D3D12_COMMAND_LIST_TYPE_COPY,
         IID_PPV_ARGS(&command_allocator_)));
 
-    throw_error(device->CreateCommandList1(
+    check_hr(device->CreateCommandList1(
         0,
         D3D12_COMMAND_LIST_TYPE_COPY,
         D3D12_COMMAND_LIST_FLAG_NONE,
@@ -793,16 +798,16 @@ class ResourceCreator : noncopyable {
     desc.Type = D3D12_COMMAND_LIST_TYPE_COPY;
     desc.Flags = D3D12_COMMAND_QUEUE_FLAG_NONE;
     auto* device = device_.get();
-    throw_error(device->CreateCommandQueue(&desc, IID_PPV_ARGS(&copy_queue_)));
+    check_hr(device->CreateCommandQueue(&desc, IID_PPV_ARGS(&copy_queue_)));
   }
 
   void create_fence() {
     auto* device = device_.get();
-    throw_error(
+    check_hr(
         device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&copy_fence_)));
     copy_fence_event_ = CreateEvent(nullptr, FALSE, FALSE, nullptr);
     if(!copy_fence_event_) {
-      throw_error(HRESULT_FROM_WIN32(GetLastError()));
+      check_hr(HRESULT_FROM_WIN32(GetLastError()));
     }
   }
 
@@ -981,210 +986,81 @@ class ShaderCache {
   }
 
   ShaderHandle compile(ShaderCompiler const& sc, std::string file, std::string entry) {
-    //#if RNDRX_ENABLE_SHADER_DEBUGGING
-    //    unsigned compile_flags = D3DCOMPILE_DEBUG |
-    //    D3DCOMPILE_SKIP_OPTIMIZATION;
-    //#else
-    //    unsigned compile_flags = 0;
-    //#endif
-    //
     std::wstring wfile(file.begin(), file.end());
     std::wstring wentry(entry.begin(), entry.end());
     std::wstring path = L"assets/shaders/";
     path += wfile + L".hlsl";
-    //    std::ifstream fin(path, std::ios::binary);
-    //    fin.seekg(0, std::ios::end);
-    //    auto len = fin.tellg();
-    //    fin.seekg(0, std::ios::beg);
-    //    source.resize(len);
-    //    fin.read(source.data(), len);
-    //    CComPtr<ID3DBlob> code;
-    //    throw_error(D3DCompile(
-    //        source.data(),
-    //        source.size(),
-    //        nullptr,
-    //        nullptr,
-    //        nullptr,
-    //        entry.c_str(),
-    //        shader_model_.c_str(),
-    //        compile_flags,
-    //        0,
-    //        &code,
-    //        nullptr));
-    //
-    //    CComPtr<ID3D12ShaderReflection> reflection;
-    //    throw_error(D3DReflect(
-    //        code->GetBufferPointer(),
-    //        code->GetBufferSize(),
-    //        IID_PPV_ARGS(&reflection)));
-    //
-    //    auto item = shaders_.emplace(
-    //        ShaderDef(std::move(file), std::move(entry)),
-    //        Shader(std::move(code), std::move(reflection)));
-    //    return {item.first->second.code.p, item.first->second.meta.p};
 
-    //
-    // COMMAND LINE: dxc myshader.hlsl -E main -T ps_6_0 -Zi -D MYDEFINE=1 -Fo
-    // myshader.bin -Fd myshader.pdb -Qstrip_reflect
-    //
-    std::array<LPCWSTR, 6> args = {
-        path.c_str(), // Optional shader source file name for error reporting
-                      // and for PIX shader source view.
+#if RNDRX_ENABLE_SHADER_DEBUGGING
+    std::wstring_view optimization_option = L"-Od";
+    std::wstring_view debug_info_option = L"-Zs";
+#else
+    std::wstring_view optimization_option = L"-O3";
+    std::wstring_view debug_info_option = L"";
+#endif
+
+    std::array<LPCWSTR, 7> args = {
+        path.c_str(),
         L"-E",
-        wentry.c_str(), // Entry point.
+        wentry.c_str(),
         L"-T",
-        shader_model_.c_str(), // Target.
-        L"-Zs",                // Enable debug information (slim format)
-        // L"-D", L"MYDEFINE=1",        // A single define.
-        //  L"-Fo", L"wfile.bin",        // Optional. Stored in the pdb.
-        //  L"-Fd", L"wfile.pdb",        // The file name of the pdb. This must
-        //  either be supplied or the autogenerated file name must be used.
-        // L"-Qstrip_reflect", // Strip reflection into a separate blob.
-    };
+        shader_model_.c_str(),
+        debug_info_option.data(),
+        optimization_option.data()};
 
-    //
-    // Open source file.
-    //
     CComPtr<IDxcBlobEncoding> source;
-    sc.utils()->LoadFile(path.c_str(), nullptr, &source);
+    check_hr(sc.utils()->LoadFile(path.c_str(), nullptr, &source));
     DxcBuffer source_buffer;
     source_buffer.Ptr = source->GetBufferPointer();
     source_buffer.Size = source->GetBufferSize();
-    source_buffer.Encoding = DXC_CP_ACP; // Assume BOM says UTF8 or UTF16 or
-                                         // this is ANSI text.
+    source_buffer.Encoding = DXC_CP_ACP;
 
-    //
-    // Compile it with specified arguments.
-    //
     CComPtr<IDxcResult> result;
-    sc.compiler()->Compile(
-        &source_buffer, // Source buffer.
-        args.data(),    // Array of pointers to arguments.
-        args.size(),    // Number of arguments.
-        nullptr,        // User-provided interface to handle #include directives
-                        // (optional).
-        IID_PPV_ARGS(&result) // Compiler output status, buffer, and errors.
-    );
+    check_hr(sc.compiler()->Compile(
+        &source_buffer,
+        args.data(),
+        args.size(),
+        nullptr,
+        IID_PPV_ARGS(&result)));
 
-    //
-    // Print errors if present.
-    //
     CComPtr<IDxcBlobUtf8> errors;
-    result->GetOutput(DXC_OUT_ERRORS, IID_PPV_ARGS(&errors), nullptr);
-    // Note that d3dcompiler would return null if no errors or warnings are
-    // present. IDxcCompiler3::Compile will always return an error buffer, but
-    // its length will be zero if there are no warnings or errors.
+    check_hr(result->GetOutput(DXC_OUT_ERRORS, IID_PPV_ARGS(&errors), nullptr));
     if(errors && errors->GetStringLength() != 0) {
       OutputDebugStringA(errors->GetStringPointer());
     }
 
-    //
-    // Quit if the compilation failed.
-    //
     HRESULT hr_status;
     result->GetStatus(&hr_status);
-    throw_error(hr_status);
+    check_hr(hr_status);
 
-    //
-    // Save shader binary.
-    //
     CComPtr<IDxcBlob> code;
     CComPtr<IDxcBlobUtf16> shader_name;
-    result->GetOutput(DXC_OUT_OBJECT, IID_PPV_ARGS(&code), &shader_name);
+    check_hr(result->GetOutput(DXC_OUT_OBJECT, IID_PPV_ARGS(&code), &shader_name));
     if(!code) {
-      throw_error(-1);
+      throw_runtime_error("Failed to obtain shader binary");
     }
 
-    // //
-    // // Save pdb.
-    // //
-    // CComPtr<IDxcBlob> pPDB = nullptr;
-    // CComPtr<IDxcBlobUtf16> pPDBName = nullptr;
-    // pResults->GetOutput(DXC_OUT_PDB, IID_PPV_ARGS(&pPDB), &pPDBName);
-    // {
-    //   FILE *fp = NULL;
-
-    //   // Note that if you don't specify -Fd, a pdb name will be automatically
-    //   // generated. Use this file name to save the pdb so that PIX can find
-    //   it
-    //   // quickly.
-    //   _wfopen_s(&fp, pPDBName->GetStringPointer(), L"wb");
-    //   fwrite(pPDB->GetBufferPointer(), pPDB->GetBufferSize(), 1, fp);
-    //   fclose(fp);
-    // }
-
-    // //
-    // // Print hash.
-    // //
-    // CComPtr<IDxcBlob> pHash = nullptr;
-    // pResults->GetOutput(DXC_OUT_SHADER_HASH, IID_PPV_ARGS(&pHash), nullptr);
-    // if (pHash != nullptr) {
-    //   wprintf(L"Hash: ");
-    //   DxcShaderHash *pHashBuf = (DxcShaderHash *)pHash->GetBufferPointer();
-    //   for (int i = 0; i < _countof(pHashBuf->HashDigest); i++)
-    //     wprintf(L"%x", pHashBuf->HashDigest[i]);
-    //   wprintf(L"\n");
-    // }
-
-    //
-    // Get separate reflection.
-    //
     CComPtr<IDxcBlob> reflection_data;
-    result->GetOutput(DXC_OUT_REFLECTION, IID_PPV_ARGS(&reflection_data), nullptr);
+    check_hr(
+        result->GetOutput(DXC_OUT_REFLECTION, IID_PPV_ARGS(&reflection_data), nullptr));
     if(!reflection_data) {
-      wprintf(L"Failed to retrieve reflection data\n");
-      throw_error(-1);
+      throw_runtime_error("Failed to get shader reflection data");
     }
-    // Optionally, save reflection blob for later here.
 
-    // Create reflection interface.
     DxcBuffer reflection_buffer;
     reflection_buffer.Encoding = DXC_CP_ACP;
     reflection_buffer.Ptr = reflection_data->GetBufferPointer();
     reflection_buffer.Size = reflection_data->GetBufferSize();
 
     CComPtr<ID3D12ShaderReflection> reflection;
-    sc.utils()->CreateReflection(&reflection_buffer, IID_PPV_ARGS(&reflection));
+    check_hr(
+        sc.utils()->CreateReflection(&reflection_buffer, IID_PPV_ARGS(&reflection)));
 
     auto item = shaders_.emplace(
         ShaderDef(std::move(file), std::move(entry)),
         Shader(std::move(code), std::move(reflection)));
     return {item.first->second.code.p, item.first->second.meta.p};
   }
-
-  // ShaderHandle add(std::string file) {
-  //     std::string source;
-  //     std::string path = "assets/shaders/";
-  //     path += file;
-  //     std::ifstream fin(path, std::ios::binary);
-  //     fin.seekg(0, std::ios::end);
-  //     auto len = fin.tellg();
-  //     fin.seekg(0, std::ios::beg);
-  //     source.resize(len);
-  //     fin.read(source.data(), len);
-  //     CComPtr<ID3DBlob> code;
-  //     D3DCreateBlob(len, &code);
-  //     std::memcpy(code->GetBufferPointer(), source.data(), len);
-
-  //    CComPtr<ID3D12ShaderReflection> reflection;
-  //    throw_error(D3DReflect(
-  //        code->GetBufferPointer(),
-  //        code->GetBufferSize(),
-  //        IID_PPV_ARGS(&reflection)));
-
-  //    auto item = shaders_.emplace(
-  //        ShaderDef(std::move(file), ""),
-  //        Shader(std::move(code), std::move(reflection)));
-  //    return { item.first->second.code.p, item.first->second.meta.p };
-  //}
-
-  // ShaderHandle find(std::string file, std::string entry) {
-  //   auto iter = shaders_.find(ShaderDef(std::move(file), std::move(entry)));
-  //   if(iter == shaders_.end()) {
-  //     return nullptr;
-  //   }
-  //   return {iter->second.code.p, iter->second.meta.p};
-  // }
 
  private:
   struct ShaderDef {
@@ -1228,7 +1104,7 @@ class ShaderData {
     create_view(d, size);
 
     D3D12_RANGE read_range = {0, 0};
-    throw_error(
+    check_hr(
         constant_buffer_->Map(0, &read_range, reinterpret_cast<void**>(&ptr_)));
   }
 
@@ -1260,7 +1136,7 @@ class ShaderData {
     desc.SampleDesc.Quality = 0;
     desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
     desc.Flags = D3D12_RESOURCE_FLAG_NONE;
-    throw_error(device->CreateCommittedResource(
+    check_hr(device->CreateCommittedResource(
         &d.upload_heap(),
         D3D12_HEAP_FLAG_NONE,
         &desc,
@@ -1524,7 +1400,7 @@ void load(Geometry& model, ResourceCreator& rc, char const* path) {
   std::string warn, err;
 
   if(!tinyobj::LoadObj(&attrib, &shapes, &materials, &warn, &err, path)) {
-    throw_error(-1);
+    check_hr(-1);
   }
 
   // We only support one vertex format for now.
@@ -1627,7 +1503,7 @@ class Swapchain : noncopyable {
   void present(SubmissionContext& sc) {
     swapchain_->Present(0, 0); // 1=With vsync
     UINT64 signal_value = ++current_present_fence_value_;
-    throw_error(device_.graphics_queue()->Signal(present_fence_, signal_value));
+    check_hr(device_.graphics_queue()->Signal(present_fence_, signal_value));
     sc.present_fence_value(signal_value);
   }
 
@@ -1635,7 +1511,7 @@ class Swapchain : noncopyable {
     auto completed_value = present_fence_->GetCompletedValue();
     auto fence_value = sc.present_fence_value();
     if(completed_value < fence_value) {
-      throw_error(
+      check_hr(
           present_fence_->SetEventOnCompletion(fence_value, present_fence_event_));
       WaitForSingleObject(present_fence_event_, INFINITE);
     }
@@ -1646,7 +1522,7 @@ class Swapchain : noncopyable {
     auto fence_value = current_present_fence_value_;
 
     if(completed_value < fence_value) {
-      throw_error(
+      check_hr(
           present_fence_->SetEventOnCompletion(fence_value, present_fence_event_));
       WaitForSingleObject(present_fence_event_, INFINITE);
       LOG(Info) << "Waited for value: " << present_fence_->GetCompletedValue();
@@ -1689,10 +1565,10 @@ class Swapchain : noncopyable {
 
   void create_swapchain_impl(DXGI_SWAP_CHAIN_DESC1 const& desc) {
     CComPtr<IDXGIFactory4> factory;
-    throw_error(CreateDXGIFactory1(IID_PPV_ARGS(&factory)));
+    check_hr(CreateDXGIFactory1(IID_PPV_ARGS(&factory)));
 
     CComPtr<IDXGISwapChain1> swapchain;
-    throw_error(factory->CreateSwapChainForHwnd(
+    check_hr(factory->CreateSwapChainForHwnd(
         device_.graphics_queue(),
         window_.hwnd(),
         &desc,
@@ -1700,7 +1576,7 @@ class Swapchain : noncopyable {
         nullptr,
         &swapchain));
 
-    throw_error(swapchain->QueryInterface(&swapchain_));
+    check_hr(swapchain->QueryInterface(&swapchain_));
     swapchain_->SetMaximumFrameLatency(num_images_);
     swapchain_waitable_ = swapchain_->GetFrameLatencyWaitableObject();
   }
@@ -1715,13 +1591,13 @@ class Swapchain : noncopyable {
   }
 
   void create_fence() {
-    throw_error(device_.get()->CreateFence(
+    check_hr(device_.get()->CreateFence(
         0,
         D3D12_FENCE_FLAG_NONE,
         IID_PPV_ARGS(&present_fence_)));
     present_fence_event_ = CreateEvent(nullptr, FALSE, FALSE, nullptr);
     if(!present_fence_event_) {
-      throw_error(HRESULT_FROM_WIN32(GetLastError()));
+      check_hr(HRESULT_FROM_WIN32(GetLastError()));
     }
   }
 
@@ -1787,7 +1663,7 @@ class ImGuiState : noncopyable {
     std::copy(&clear_colour_.x, &clear_colour_.x + 4, &clear.Color[0]);
 
     CComPtr<ID3D12Resource> image;
-    throw_error(device->CreateCommittedResource(
+    check_hr(device->CreateCommittedResource(
         &device_.resource_heap(),
         D3D12_HEAP_FLAG_NONE,
         &desc,
@@ -1799,7 +1675,6 @@ class ImGuiState : noncopyable {
   }
 
   void update() {
-    // Start the Dear ImGui frame
     ImGui_ImplDX12_NewFrame();
     ImGui_ImplGlfw_NewFrame();
     ImGui::NewFrame();
@@ -1977,10 +1852,9 @@ class DrawModelForward : noncopyable {
     CComPtr<ID3DBlob> error;
     auto* device = d.get();
     if(S_OK != D3D12SerializeVersionedRootSignature(&desc, &signature, &error)) {
-      throw_exception(std::runtime_error(
-          static_cast<char const*>(error->GetBufferPointer())));
+      throw_runtime_error(static_cast<char const*>(error->GetBufferPointer()));
     }
-    throw_error(device->CreateRootSignature(
+    check_hr(device->CreateRootSignature(
         0,
         signature->GetBufferPointer(),
         signature->GetBufferSize(),
@@ -2057,7 +1931,7 @@ class DrawModelForward : noncopyable {
     pso_desc.SampleDesc.Count = 1;
 
     auto* device = d.get();
-    throw_error(
+    check_hr(
         device->CreateGraphicsPipelineState(&pso_desc, IID_PPV_ARGS(&pipeline_)));
   }
 
@@ -2132,10 +2006,9 @@ class DrawDebugGeometry : noncopyable {
     CComPtr<ID3DBlob> error;
     auto* device = d.get();
     if(S_OK != D3D12SerializeVersionedRootSignature(&desc, &signature, &error)) {
-      throw_exception(std::runtime_error(
-          static_cast<char const*>(error->GetBufferPointer())));
+      throw_runtime_error(static_cast<char const*>(error->GetBufferPointer()));
     }
-    throw_error(device->CreateRootSignature(
+    check_hr(device->CreateRootSignature(
         0,
         signature->GetBufferPointer(),
         signature->GetBufferSize(),
@@ -2212,7 +2085,7 @@ class DrawDebugGeometry : noncopyable {
     pso_desc.SampleDesc.Count = 1;
 
     auto* device = d.get();
-    throw_error(
+    check_hr(
         device->CreateGraphicsPipelineState(&pso_desc, IID_PPV_ARGS(&pipeline_)));
   }
 
@@ -2275,12 +2148,12 @@ class DrawImage : noncopyable {
     CComPtr<ID3DBlob> signature;
     CComPtr<ID3DBlob> error;
     auto* device = d.get();
-    throw_error(D3D12SerializeRootSignature(
+    check_hr(D3D12SerializeRootSignature(
         &desc,
         D3D_ROOT_SIGNATURE_VERSION_1,
         &signature,
         &error));
-    throw_error(device->CreateRootSignature(
+    check_hr(device->CreateRootSignature(
         0,
         signature->GetBufferPointer(),
         signature->GetBufferSize(),
@@ -2342,7 +2215,7 @@ class DrawImage : noncopyable {
     pso_desc.SampleDesc.Count = 1;
 
     auto* device = d.get();
-    throw_error(
+    check_hr(
         device->CreateGraphicsPipelineState(&pso_desc, IID_PPV_ARGS(&pipeline_)));
   }
 
@@ -2394,7 +2267,7 @@ class PointLight {
 
 std::vector<CComPtr<IDXGIAdapter>> get_adapters() {
   CComPtr<IDXGIFactory4> factory;
-  throw_error(CreateDXGIFactory1(IID_PPV_ARGS(&factory)));
+  check_hr(CreateDXGIFactory1(IID_PPV_ARGS(&factory)));
 
   std::vector<CComPtr<IDXGIAdapter>> adapters;
   CComPtr<IDXGIAdapter> adapter;
@@ -2490,7 +2363,7 @@ class Application : noncopyable {
     }
 
     CComPtr<ID3D12GraphicsCommandList> command_list;
-    throw_error(device.get()->CreateCommandList1(
+    check_hr(device.get()->CreateCommandList1(
         0,
         D3D12_COMMAND_LIST_TYPE_DIRECT,
         D3D12_COMMAND_LIST_FLAG_NONE,
@@ -2729,7 +2602,7 @@ class Application : noncopyable {
     clear.DepthStencil.Depth = 1.f;
     clear.DepthStencil.Stencil = 0;
     CComPtr<ID3D12Resource> image;
-    throw_error(device->CreateCommittedResource(
+    check_hr(device->CreateCommittedResource(
         &d.resource_heap(),
         D3D12_HEAP_FLAG_NONE,
         &desc,
