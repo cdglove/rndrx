@@ -25,7 +25,7 @@ set(SOURCES
 add_executable(rndrx-dx12 ${SOURCES})
 
 target_link_libraries(rndrx-dx12 
-    PUBLIC d3d12 dxgi glfw glm tinyobjloader
+    PUBLIC d3d12 dxgi glfw glm tinyobjloader dxc
     $<$<CONFIG:DEBUG>:dxguid>)
 
 target_include_directories(rndrx-dx12 PUBLIC 

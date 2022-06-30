@@ -60,4 +60,22 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(tinyobjloader)
 
+FetchContent_Declare(
+    dxc
+    URL https://github.com/microsoft/DirectXShaderCompiler/releases/download/v1.6.2112/dxc_2021_12_08.zip
+    URL_HASH MD5=e9e899c387f29ecaa1bfdeb1252775e3
+)
+FetchContent_MakeAvailable(dxc)
+FetchContent_GetProperties(dxc SOURCE_DIR dxc_SOURCE_DIR)
+add_library(dxc SHARED IMPORTED)
+set_target_properties(
+             dxc PROPERTIES
+             IMPORTED_LOCATION "${dxc_SOURCE_DIR}/bin/x64/dxcompiler.dll"
+             IMPORTED_IMPLIB "${dxc_SOURCE_DIR}/lib/x64/dxcompiler.lib"
+             INTERFACE_INCLUDE_DIRECTORIES "${dxc_SOURCE_DIR}/inc")
+
+if(MSVC)
+    add_compile_options(/EHsc)
+endif()
+
 add_subdirectory(dx12)

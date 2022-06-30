@@ -25,7 +25,8 @@
 #include <Windows.h>
 #include <atlbase.h>
 #include <d3d12.h>
-#include <d3dcompiler.h>
+#include <d3d12shader.h>
+#include <dxcapi.h>
 #include <dxgi.h>
 #include <dxgi1_4.h>
 #include <stb_image.h>
@@ -887,7 +888,7 @@ class ShaderCache;
 
 class FragmentShaderHandle : noncopyable {
  public:
-  ID3DBlob* code() const {
+  IDxcBlob* code() const {
     return code_;
   }
 
@@ -897,7 +898,7 @@ class FragmentShaderHandle : noncopyable {
 
  private:
   friend class ShaderCache<FragmentShaderHandle>;
-  FragmentShaderHandle(ID3DBlob* shader, ID3D12ShaderReflection* meta)
+  FragmentShaderHandle(IDxcBlob* shader, ID3D12ShaderReflection* meta)
       : code_(shader)
       , meta_(meta) {
     cache_descriptor_tables();
@@ -914,14 +915,14 @@ class FragmentShaderHandle : noncopyable {
         });
   }
 
-  ID3DBlob* code_;
+  IDxcBlob* code_;
   ShaderMetadata meta_;
   std::vector<D3D12_ROOT_DESCRIPTOR_TABLE> descriptor_tables_;
 };
 
 class VertexShaderHandle : noncopyable {
  public:
-  ID3DBlob* code() const {
+  IDxcBlob* code() const {
     return code_;
   }
 
@@ -931,7 +932,7 @@ class VertexShaderHandle : noncopyable {
 
  private:
   friend class ShaderCache<VertexShaderHandle>;
-  VertexShaderHandle(ID3DBlob* shader, ID3D12ShaderReflection* meta)
+  VertexShaderHandle(IDxcBlob* shader, ID3D12ShaderReflection* meta)
       : code_(shader)
       , meta_(meta) {
     cache_descriptor_tables();
@@ -948,53 +949,202 @@ class VertexShaderHandle : noncopyable {
         });
   }
 
-  ID3DBlob* code_;
+  IDxcBlob* code_;
   ShaderMetadata meta_;
   std::vector<D3D12_ROOT_DESCRIPTOR_TABLE> descriptor_tables_;
+};
+
+class ShaderCompiler {
+ public:
+  ShaderCompiler() {
+    DxcCreateInstance(CLSID_DxcUtils, IID_PPV_ARGS(&utils_));
+    DxcCreateInstance(CLSID_DxcCompiler, IID_PPV_ARGS(&compiler_));
+  }
+
+  CComPtr<IDxcUtils> const& utils() const {
+    return utils_;
+  }
+  CComPtr<IDxcCompiler3> const& compiler() const {
+    return compiler_;
+  }
+
+ private:
+  CComPtr<IDxcUtils> utils_;
+  CComPtr<IDxcCompiler3> compiler_;
 };
 
 template <typename ShaderHandle>
 class ShaderCache {
  public:
-  ShaderCache(std::string shader_model)
-      : shader_model_(std::move(shader_model)) {
+  ShaderCache(std::string_view shader_model)
+      : shader_model_(shader_model.begin(), shader_model.end()) {
   }
 
-  ShaderHandle add(std::string file, std::string entry) {
-#if RNDRX_ENABLE_SHADER_DEBUGGING
-    unsigned compile_flags = D3DCOMPILE_DEBUG | D3DCOMPILE_SKIP_OPTIMIZATION;
-#else
-    unsigned compile_flags = 0;
-#endif
+  ShaderHandle compile(ShaderCompiler const& sc, std::string file, std::string entry) {
+    //#if RNDRX_ENABLE_SHADER_DEBUGGING
+    //    unsigned compile_flags = D3DCOMPILE_DEBUG |
+    //    D3DCOMPILE_SKIP_OPTIMIZATION;
+    //#else
+    //    unsigned compile_flags = 0;
+    //#endif
+    //
+    std::wstring wfile(file.begin(), file.end());
+    std::wstring wentry(entry.begin(), entry.end());
+    std::wstring path = L"assets/shaders/";
+    path += wfile + L".hlsl";
+    //    std::ifstream fin(path, std::ios::binary);
+    //    fin.seekg(0, std::ios::end);
+    //    auto len = fin.tellg();
+    //    fin.seekg(0, std::ios::beg);
+    //    source.resize(len);
+    //    fin.read(source.data(), len);
+    //    CComPtr<ID3DBlob> code;
+    //    throw_error(D3DCompile(
+    //        source.data(),
+    //        source.size(),
+    //        nullptr,
+    //        nullptr,
+    //        nullptr,
+    //        entry.c_str(),
+    //        shader_model_.c_str(),
+    //        compile_flags,
+    //        0,
+    //        &code,
+    //        nullptr));
+    //
+    //    CComPtr<ID3D12ShaderReflection> reflection;
+    //    throw_error(D3DReflect(
+    //        code->GetBufferPointer(),
+    //        code->GetBufferSize(),
+    //        IID_PPV_ARGS(&reflection)));
+    //
+    //    auto item = shaders_.emplace(
+    //        ShaderDef(std::move(file), std::move(entry)),
+    //        Shader(std::move(code), std::move(reflection)));
+    //    return {item.first->second.code.p, item.first->second.meta.p};
 
-    std::string source;
-    std::string path = "assets/shaders/";
-    path += file + ".hlsl";
-    std::ifstream fin(path, std::ios::binary);
-    fin.seekg(0, std::ios::end);
-    auto len = fin.tellg();
-    fin.seekg(0, std::ios::beg);
-    source.resize(len);
-    fin.read(source.data(), len);
-    CComPtr<ID3DBlob> code;
-    throw_error(D3DCompile(
-        source.data(),
-        source.size(),
-        nullptr,
-        nullptr,
-        nullptr,
-        entry.c_str(),
-        shader_model_.c_str(),
-        compile_flags,
-        0,
-        &code,
-        nullptr));
+    //
+    // COMMAND LINE: dxc myshader.hlsl -E main -T ps_6_0 -Zi -D MYDEFINE=1 -Fo
+    // myshader.bin -Fd myshader.pdb -Qstrip_reflect
+    //
+    std::array<LPCWSTR, 6> args = {
+        path.c_str(), // Optional shader source file name for error reporting
+                      // and for PIX shader source view.
+        L"-E",
+        wentry.c_str(), // Entry point.
+        L"-T",
+        shader_model_.c_str(), // Target.
+        L"-Zs",                // Enable debug information (slim format)
+        // L"-D", L"MYDEFINE=1",        // A single define.
+        //  L"-Fo", L"wfile.bin",        // Optional. Stored in the pdb.
+        //  L"-Fd", L"wfile.pdb",        // The file name of the pdb. This must
+        //  either be supplied or the autogenerated file name must be used.
+        // L"-Qstrip_reflect", // Strip reflection into a separate blob.
+    };
+
+    //
+    // Open source file.
+    //
+    CComPtr<IDxcBlobEncoding> source;
+    sc.utils()->LoadFile(path.c_str(), nullptr, &source);
+    DxcBuffer source_buffer;
+    source_buffer.Ptr = source->GetBufferPointer();
+    source_buffer.Size = source->GetBufferSize();
+    source_buffer.Encoding = DXC_CP_ACP; // Assume BOM says UTF8 or UTF16 or
+                                         // this is ANSI text.
+
+    //
+    // Compile it with specified arguments.
+    //
+    CComPtr<IDxcResult> result;
+    sc.compiler()->Compile(
+        &source_buffer, // Source buffer.
+        args.data(),    // Array of pointers to arguments.
+        args.size(),    // Number of arguments.
+        nullptr,        // User-provided interface to handle #include directives
+                        // (optional).
+        IID_PPV_ARGS(&result) // Compiler output status, buffer, and errors.
+    );
+
+    //
+    // Print errors if present.
+    //
+    CComPtr<IDxcBlobUtf8> errors;
+    result->GetOutput(DXC_OUT_ERRORS, IID_PPV_ARGS(&errors), nullptr);
+    // Note that d3dcompiler would return null if no errors or warnings are
+    // present. IDxcCompiler3::Compile will always return an error buffer, but
+    // its length will be zero if there are no warnings or errors.
+    if(errors && errors->GetStringLength() != 0) {
+      OutputDebugStringA(errors->GetStringPointer());
+    }
+
+    //
+    // Quit if the compilation failed.
+    //
+    HRESULT hr_status;
+    result->GetStatus(&hr_status);
+    throw_error(hr_status);
+
+    //
+    // Save shader binary.
+    //
+    CComPtr<IDxcBlob> code;
+    CComPtr<IDxcBlobUtf16> shader_name;
+    result->GetOutput(DXC_OUT_OBJECT, IID_PPV_ARGS(&code), &shader_name);
+    if(!code) {
+      throw_error(-1);
+    }
+
+    // //
+    // // Save pdb.
+    // //
+    // CComPtr<IDxcBlob> pPDB = nullptr;
+    // CComPtr<IDxcBlobUtf16> pPDBName = nullptr;
+    // pResults->GetOutput(DXC_OUT_PDB, IID_PPV_ARGS(&pPDB), &pPDBName);
+    // {
+    //   FILE *fp = NULL;
+
+    //   // Note that if you don't specify -Fd, a pdb name will be automatically
+    //   // generated. Use this file name to save the pdb so that PIX can find
+    //   it
+    //   // quickly.
+    //   _wfopen_s(&fp, pPDBName->GetStringPointer(), L"wb");
+    //   fwrite(pPDB->GetBufferPointer(), pPDB->GetBufferSize(), 1, fp);
+    //   fclose(fp);
+    // }
+
+    // //
+    // // Print hash.
+    // //
+    // CComPtr<IDxcBlob> pHash = nullptr;
+    // pResults->GetOutput(DXC_OUT_SHADER_HASH, IID_PPV_ARGS(&pHash), nullptr);
+    // if (pHash != nullptr) {
+    //   wprintf(L"Hash: ");
+    //   DxcShaderHash *pHashBuf = (DxcShaderHash *)pHash->GetBufferPointer();
+    //   for (int i = 0; i < _countof(pHashBuf->HashDigest); i++)
+    //     wprintf(L"%x", pHashBuf->HashDigest[i]);
+    //   wprintf(L"\n");
+    // }
+
+    //
+    // Get separate reflection.
+    //
+    CComPtr<IDxcBlob> reflection_data;
+    result->GetOutput(DXC_OUT_REFLECTION, IID_PPV_ARGS(&reflection_data), nullptr);
+    if(!reflection_data) {
+      wprintf(L"Failed to retrieve reflection data\n");
+      throw_error(-1);
+    }
+    // Optionally, save reflection blob for later here.
+
+    // Create reflection interface.
+    DxcBuffer reflection_buffer;
+    reflection_buffer.Encoding = DXC_CP_ACP;
+    reflection_buffer.Ptr = reflection_data->GetBufferPointer();
+    reflection_buffer.Size = reflection_data->GetBufferSize();
 
     CComPtr<ID3D12ShaderReflection> reflection;
-    throw_error(D3DReflect(
-        code->GetBufferPointer(),
-        code->GetBufferSize(),
-        IID_PPV_ARGS(&reflection)));
+    sc.utils()->CreateReflection(&reflection_buffer, IID_PPV_ARGS(&reflection));
 
     auto item = shaders_.emplace(
         ShaderDef(std::move(file), std::move(entry)),
@@ -1002,13 +1152,39 @@ class ShaderCache {
     return {item.first->second.code.p, item.first->second.meta.p};
   }
 
-  ShaderHandle find(std::string file, std::string entry) {
-    auto iter = shaders_.find(ShaderDef(std::move(file), std::move(entry)));
-    if(iter == shaders_.end()) {
-      return nullptr;
-    }
-    return {iter->second.code.p, iter->second.meta.p};
-  }
+  // ShaderHandle add(std::string file) {
+  //     std::string source;
+  //     std::string path = "assets/shaders/";
+  //     path += file;
+  //     std::ifstream fin(path, std::ios::binary);
+  //     fin.seekg(0, std::ios::end);
+  //     auto len = fin.tellg();
+  //     fin.seekg(0, std::ios::beg);
+  //     source.resize(len);
+  //     fin.read(source.data(), len);
+  //     CComPtr<ID3DBlob> code;
+  //     D3DCreateBlob(len, &code);
+  //     std::memcpy(code->GetBufferPointer(), source.data(), len);
+
+  //    CComPtr<ID3D12ShaderReflection> reflection;
+  //    throw_error(D3DReflect(
+  //        code->GetBufferPointer(),
+  //        code->GetBufferSize(),
+  //        IID_PPV_ARGS(&reflection)));
+
+  //    auto item = shaders_.emplace(
+  //        ShaderDef(std::move(file), ""),
+  //        Shader(std::move(code), std::move(reflection)));
+  //    return { item.first->second.code.p, item.first->second.meta.p };
+  //}
+
+  // ShaderHandle find(std::string file, std::string entry) {
+  //   auto iter = shaders_.find(ShaderDef(std::move(file), std::move(entry)));
+  //   if(iter == shaders_.end()) {
+  //     return nullptr;
+  //   }
+  //   return {iter->second.code.p, iter->second.meta.p};
+  // }
 
  private:
   struct ShaderDef {
@@ -1025,12 +1201,12 @@ class ShaderCache {
   };
 
   struct Shader {
-    Shader(CComPtr<ID3DBlob>&& c, CComPtr<ID3D12ShaderReflection>&& m)
+    Shader(CComPtr<IDxcBlob>&& c, CComPtr<ID3D12ShaderReflection>&& m)
         : code(std::move(c))
         , meta(std::move(m)) {
     }
 
-    CComPtr<ID3DBlob> code;
+    CComPtr<IDxcBlob> code;
     CComPtr<ID3D12ShaderReflection> meta;
   };
 
@@ -1042,7 +1218,7 @@ class ShaderCache {
   };
 
   std::unordered_map<ShaderDef, Shader, HashShaderDef> shaders_;
-  std::string shader_model_;
+  std::wstring shader_model_;
 };
 
 class ShaderData {
@@ -2242,24 +2418,25 @@ class Application : noncopyable {
     ResourceCreator resource_creator(device);
     resource_creator.begin_loading();
 
-    ShaderCache<VertexShaderHandle> vertex_shaders("vs_5_0");
-    auto fullscreen_vs = vertex_shaders.add("fullscreen_quad", "VSMain");
-    auto static_model_vs = vertex_shaders.add("static_model", "VSMain");
+    ShaderCompiler sc;
+    ShaderCache<VertexShaderHandle> vertex_shaders("vs_6_0");
+    auto fullscreen_vs = vertex_shaders.compile(sc, "fullscreen_quad", "VSMain");
+    auto static_model_vs = vertex_shaders.compile(sc, "static_model", "VSMain");
 
-    ShaderCache<FragmentShaderHandle> fragment_shaders("ps_5_0");
-    auto fullscreen_ps = fragment_shaders.add("fullscreen_quad", "PSMain");
-    auto fullscreen_ps_inv = fragment_shaders.add(
-        "fullscreen_quad",
-        "PSMainInv");
-    auto albedo_ps = fragment_shaders.add("static_model", "Albedo");
-    auto phong_ps = fragment_shaders.add("static_model", "Phong");
-    auto debug_ps = fragment_shaders.add("static_model", "Debug");
+    ShaderCache<FragmentShaderHandle> fragment_shaders("ps_6_0");
+    auto fullscreen_ps =
+        fragment_shaders.compile(sc, "fullscreen_quad", "PSMain");
+    auto fullscreen_ps_inv =
+        fragment_shaders.compile(sc, "fullscreen_quad", "PSMainInv");
+    auto albedo_ps = fragment_shaders.compile(sc, "static_model", "Albedo");
+    auto phong_ps = fragment_shaders.compile(sc, "static_model", "Phong");
+    auto debug_ps = fragment_shaders.compile(sc, "static_model", "Debug");
 
     DrawImage copy_image(device, fullscreen_vs, fullscreen_ps);
     DrawImage copy_image_inv_alpha(device, fullscreen_vs, fullscreen_ps_inv);
 
     Image background;
-    load(background, resource_creator, "assets/textures/test.jpg");
+    load(background, resource_creator, "assets/textures/background.jpg");
 
     Geometry main_geometry;
     load(main_geometry, resource_creator, "assets/models/cottage.obj");
@@ -2480,7 +2657,7 @@ class Application : noncopyable {
           "%1.f",
           ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_NoRoundToFormat);
       ImGui::SameLine();
-      ImGui::Checkbox("Rotate", &enable_rotation_);
+      ImGui::Checkbox("Rotate Camera", &enable_rotation_);
       ImGui::End();
     }
 
@@ -2564,7 +2741,7 @@ class Application : noncopyable {
 
   std::vector<CComPtr<IDXGIAdapter>> adapters_;
   int adapter_index_ = 0;
-  glm::vec4 clear_colour_ = {0.4f, 0.45f, 0.6f, 1.f};
+  glm::vec4 clear_colour_ = {0.0f, 0.0f, 0.0f, 1.f};
   std::vector<char> adapter_names_;
   Window& window_;
   Swapchain* swapchain_ = nullptr;
@@ -2586,7 +2763,7 @@ static void glfw_error_callback(int error, const char* description) {
 int main(int, char**) {
   struct DxReport {
     ~DxReport() {
-#ifdef RNDRX_ENABLE_DX12_DEBUG_LAYER
+#if RNDRX_ENABLE_DX12_DEBUG_LAYER
       CComPtr<IDXGIDebug1> xgi_debug;
       if(SUCCEEDED(DXGIGetDebugInterface1(0, IID_PPV_ARGS(&xgi_debug)))) {
         xgi_debug->ReportLiveObjects(DXGI_DEBUG_ALL, DXGI_DEBUG_RLO_SUMMARY);
