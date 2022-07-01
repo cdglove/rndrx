@@ -44,7 +44,13 @@ target_compile_definitions(rndrx-dx12 PUBLIC
 
 add_custom_command(
     TARGET rndrx-dx12 POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_RUNTIME_DLLS:rndrx-dx12> $<TARGET_FILE_DIR:rndrx-dx12>
-    COMMAND ${CMAKE_COMMAND} -E copy_directory ${assets_SOURCE_DIR} $<TARGET_FILE_DIR:rndrx-dx12>/assets
-    COMMAND ${CMAKE_COMMAND} -E copy_directory ${PROJECT_SOURCE_DIR}/assets/shaders $<TARGET_FILE_DIR:rndrx-dx12>/assets/shaders
+    # Create asset layout in project directory for easy debugging
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_RUNTIME_DLLS:rndrx-dx12> ${PROJECT_BINARY_DIR}
+    COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:rndrx-dx12> ${PROJECT_BINARY_DIR}
+    COMMAND ${CMAKE_COMMAND} -E copy_directory ${assets_SOURCE_DIR} ${PROJECT_BINARY_DIR}/assets
+    COMMAND ${CMAKE_COMMAND} -E copy_directory ${PROJECT_SOURCE_DIR}/assets ${PROJECT_BINARY_DIR}/assets
+    # Create staging directory for easy deployment.
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_RUNTIME_DLLS:rndrx-dx12> ${PROJECT_BINARY_DIR}/stage
+    COMMAND ${CMAKE_COMMAND} -E copy_directory ${PROJECT_SOURCE_DIR}/assets ${PROJECT_BINARY_DIR}/stage/assets
+    COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:rndrx-dx12> ${PROJECT_BINARY_DIR}/stage
     COMMAND_EXPAND_LISTS)
