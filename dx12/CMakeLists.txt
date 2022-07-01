@@ -12,9 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 set(SOURCES 
-    glfw_main.cpp
+    main.cpp
+    imgui_integration.cpp
     ${dear_imgui_SOURCE_DIR}/backends/imgui_impl_glfw.cpp 
-    ${dear_imgui_SOURCE_DIR}/backends/imgui_impl_dx12.cpp 
     ${dear_imgui_SOURCE_DIR}/imgui.cpp 
     ${dear_imgui_SOURCE_DIR}/imgui_draw.cpp 
     ${dear_imgui_SOURCE_DIR}/imgui_tables.cpp 
@@ -47,10 +47,12 @@ add_custom_command(
     # Create asset layout in project directory for easy debugging
     COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_RUNTIME_DLLS:rndrx-dx12> ${PROJECT_BINARY_DIR}
     COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:rndrx-dx12> ${PROJECT_BINARY_DIR}
+    COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_PDB_FILE:rndrx-dx12> ${PROJECT_BINARY_DIR}
     COMMAND ${CMAKE_COMMAND} -E copy_directory ${assets_SOURCE_DIR} ${PROJECT_BINARY_DIR}/assets
     COMMAND ${CMAKE_COMMAND} -E copy_directory ${PROJECT_SOURCE_DIR}/assets ${PROJECT_BINARY_DIR}/assets
     # Create staging directory for easy deployment.
     COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_RUNTIME_DLLS:rndrx-dx12> ${PROJECT_BINARY_DIR}/stage
-    COMMAND ${CMAKE_COMMAND} -E copy_directory ${PROJECT_SOURCE_DIR}/assets ${PROJECT_BINARY_DIR}/stage/assets
+    COMMAND ${CMAKE_COMMAND} -E copy_directory ${PROJECT_BINARY_DIR}/assets ${PROJECT_BINARY_DIR}/stage/assets
     COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:rndrx-dx12> ${PROJECT_BINARY_DIR}/stage
+    COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_PDB_FILE:rndrx-dx12> ${PROJECT_BINARY_DIR}/stage
     COMMAND_EXPAND_LISTS)
