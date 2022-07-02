@@ -1,16 +1,30 @@
-#include <Windows.h>
+// Copyright (c) 2022 Google Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+#include <windows.h>
 #include <atlbase.h>
 #include <d3d12.h>
 #include <d3d12shader.h>
 #include <dxcapi.h>
-#include <dxgi.h>
-#include <dxgi1_4.h>
 
 #include <array>
 #include <cstring>
 #include <string_view>
 
-extern "C" HRESULT WINAPI DxcCompile(
+// D3DCompile exists only because imgui calls it to create shaders, but we don't
+// want a dependency on d3dcompiler.dll in order to make sure built executables
+// can easily run everywhere, so we supply our own implemented in terms of dxc.
+extern "C" HRESULT WINAPI D3DCompile(
     LPCVOID pSrcData,
     SIZE_T SrcDataSize,
     LPCSTR pFileName,
@@ -35,7 +49,7 @@ extern "C" HRESULT WINAPI DxcCompile(
       L"-E",
       wentry.c_str(),
       L"-T",
-      shader_model.data());
+      shader_model.data()};
 
   CComPtr<IDxcBlobEncoding> source;
   DxcBuffer source_buffer;
@@ -78,7 +92,3 @@ extern "C" HRESULT WINAPI DxcCompile(
   *ppCode = reinterpret_cast<ID3DBlob*>(code.p);
   return S_OK;
 }
-
-#define D3DCompile DxcCompile
-
-#include "imgui_impl_dx12.cpp"

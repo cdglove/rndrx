@@ -1,4 +1,4 @@
-# Copyright 2020 Google Inc. All Rights Reserved.
+# Copyright 2022 Google Inc. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -13,8 +13,9 @@
 # limitations under the License.
 set(SOURCES 
     main.cpp
-    imgui_integration.cpp
+    d3dcompile.cpp
     ${dear_imgui_SOURCE_DIR}/backends/imgui_impl_glfw.cpp 
+    ${dear_imgui_SOURCE_DIR}/backends/imgui_impl_dx12.cpp
     ${dear_imgui_SOURCE_DIR}/imgui.cpp 
     ${dear_imgui_SOURCE_DIR}/imgui_draw.cpp 
     ${dear_imgui_SOURCE_DIR}/imgui_tables.cpp 
