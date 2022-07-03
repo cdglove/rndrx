@@ -155,7 +155,7 @@ class Window : noncopyable {
  public:
   Window() {
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-    window_ = glfwCreateWindow(width_, height_, "rndrx-dx12", glfwGetPrimaryMonitor(), nullptr);
+    window_ = glfwCreateWindow(width_, height_, "rndrx-dx12", /* glfwGetPrimaryMonitor() */ nullptr, nullptr);
     hwnd_ = glfwGetWin32Window(window_);
   }
 

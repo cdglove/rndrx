@@ -82,6 +82,13 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(assets)       
 FetchContent_GetProperties(assets SOURCE_DIR assets_SOURCE_DIR)     
 
+# Prepare a common staging directory for all targets
+file(COPY ${assets_SOURCE_DIR}/models ${assets_SOURCE_DIR}/textures
+     DESTINATION ${PROJECT_BINARY_DIR}/stage/assets)
+
+file(COPY ${PROJECT_SOURCE_DIR}/assets/shaders
+     DESTINATION ${PROJECT_BINARY_DIR}/stage/assets)
+
 if(MSVC)
     add_compile_options(/EHsc)
 endif()

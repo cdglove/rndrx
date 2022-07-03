@@ -43,17 +43,24 @@ target_compile_definitions(rndrx-dx12 PUBLIC
     $<$<CONFIG:DEBUG>:RNDRX_ENABLE_DX12_DEBUG_LAYER=1>
     $<$<CONFIG:DEBUG>:RNDRX_ENABLE_SHADER_DEBUGGING=1>)
 
+# Link the assets directory to the binary output dir so that debugging works out of box
+file(CREATE_LINK ${PROJECT_BINARY_DIR}/stage/assets 
+                 ${PROJECT_BINARY_DIR}/dx12/assets
+                 SYMBOLIC) 
+
 add_custom_command(
     TARGET rndrx-dx12 POST_BUILD
-    # Create asset layout in project directory for easy debugging
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_RUNTIME_DLLS:rndrx-dx12> ${PROJECT_BINARY_DIR}
-    COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:rndrx-dx12> ${PROJECT_BINARY_DIR}
-    COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_PDB_FILE:rndrx-dx12> ${PROJECT_BINARY_DIR}
-    COMMAND ${CMAKE_COMMAND} -E copy_directory ${assets_SOURCE_DIR} ${PROJECT_BINARY_DIR}/assets
-    COMMAND ${CMAKE_COMMAND} -E copy_directory ${PROJECT_SOURCE_DIR}/assets ${PROJECT_BINARY_DIR}/assets
-    # Create staging directory for easy deployment.
     COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_RUNTIME_DLLS:rndrx-dx12> ${PROJECT_BINARY_DIR}/stage
-    COMMAND ${CMAKE_COMMAND} -E copy_directory ${PROJECT_BINARY_DIR}/assets ${PROJECT_BINARY_DIR}/stage/assets
+    # When debugging, the working directory is set to the project dir, not the 
+    # executable dir, so we need to put the ddls there too for them to be found.
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_RUNTIME_DLLS:rndrx-dx12> ${PROJECT_BINARY_DIR}/dx12
     COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:rndrx-dx12> ${PROJECT_BINARY_DIR}/stage
     COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_PDB_FILE:rndrx-dx12> ${PROJECT_BINARY_DIR}/stage
     COMMAND_EXPAND_LISTS)
+
+if(MSVC)
+    add_custom_command(
+        TARGET rndrx-dx12 POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_PDB_FILE:rndrx-dx12> ${PROJECT_BINARY_DIR}/stage
+        COMMAND_EXPAND_LISTS)
+endif()
