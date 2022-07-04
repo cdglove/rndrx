@@ -51,11 +51,11 @@ file(CREATE_LINK ${PROJECT_BINARY_DIR}/stage/assets
 add_custom_command(
     TARGET rndrx-dx12 POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_RUNTIME_DLLS:rndrx-dx12> ${PROJECT_BINARY_DIR}/stage
+    COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:rndrx-dx12> ${PROJECT_BINARY_DIR}/stage
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_RUNTIME_DLLS:rndrx-dx12> ${PROJECT_BINARY_DIR}/dx12
     # When debugging, the working directory is set to the project dir, not the 
     # executable dir, so we need to put the ddls there too for them to be found.
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_RUNTIME_DLLS:rndrx-dx12> ${PROJECT_BINARY_DIR}/dx12
-    COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:rndrx-dx12> ${PROJECT_BINARY_DIR}/stage
-    COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_PDB_FILE:rndrx-dx12> ${PROJECT_BINARY_DIR}/stage
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_RUNTIME_DLLS:rndrx-dx12> ${PROJECT_BINARY_DIR}
     COMMAND_EXPAND_LISTS)
 
 if(MSVC)
