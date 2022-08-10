@@ -53,6 +53,7 @@
 #include "imgui.h"
 #include "imgui_impl_dx12.h"
 #include "imgui_impl_glfw.h"
+#include "pso_caching.h"
 
 #if RNDRX_ENABLE_DX12_DEBUG_LAYER
 #  include <dxgidebug.h>
@@ -155,7 +156,12 @@ class Window : noncopyable {
  public:
   Window() {
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-    window_ = glfwCreateWindow(width_, height_, "rndrx-dx12", /* glfwGetPrimaryMonitor() */ nullptr, nullptr);
+    window_ = glfwCreateWindow(
+        width_,
+        height_,
+        "rndrx-dx12",
+        /* glfwGetPrimaryMonitor() */ nullptr,
+        nullptr);
     hwnd_ = glfwGetWin32Window(window_);
   }
 
@@ -1930,9 +1936,19 @@ class DrawModelForward : noncopyable {
     pso_desc.DSVFormat = DXGI_FORMAT_D32_FLOAT;
     pso_desc.SampleDesc.Count = 1;
 
+#ifdef RNDRX_USE_PSO_CACHING
+    create_pso_with_caching(
+        d.get(),
+        &pso_desc,
+        "draw-model-forward",
+        vs.code(),
+        fs.code(),
+        &pipeline_);
+#else
     auto* device = d.get();
     check_hr(
         device->CreateGraphicsPipelineState(&pso_desc, IID_PPV_ARGS(&pipeline_)));
+#endif /* RNDRX_USE_PSO_CACHING */
   }
 
   CComPtr<ID3D12RootSignature> root_signature_;
@@ -2084,9 +2100,19 @@ class DrawDebugGeometry : noncopyable {
     pso_desc.DSVFormat = DXGI_FORMAT_D32_FLOAT;
     pso_desc.SampleDesc.Count = 1;
 
+#ifdef RNDRX_USE_PSO_CACHING
+    create_pso_with_caching(
+        d.get(),
+        &pso_desc,
+        "draw-debug-geometry",
+        vs.code(),
+        fs.code(),
+        &pipeline_);
+#else
     auto* device = d.get();
     check_hr(
         device->CreateGraphicsPipelineState(&pso_desc, IID_PPV_ARGS(&pipeline_)));
+#endif /* RNDRX_USE_PSO_CACHING */
   }
 
   CComPtr<ID3D12RootSignature> root_signature_;
@@ -2214,9 +2240,19 @@ class DrawImage : noncopyable {
     pso_desc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
     pso_desc.SampleDesc.Count = 1;
 
+#ifdef RNDRX_USE_PSO_CACHING
+    create_pso_with_caching(
+        d.get(),
+        &pso_desc,
+        "draw-image",
+        vs.code(),
+        fs.code(),
+        &pipeline_);
+#else
     auto* device = d.get();
     check_hr(
         device->CreateGraphicsPipelineState(&pso_desc, IID_PPV_ARGS(&pipeline_)));
+#endif /* RNDRX_USE_PSO_CACHING */
   }
 
   CComPtr<ID3D12RootSignature> root_signature_;
