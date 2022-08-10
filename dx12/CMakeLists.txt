@@ -14,6 +14,7 @@
 set(SOURCES 
     main.cpp
     d3dcompile.cpp
+    pso_caching.cpp
     ${dear_imgui_SOURCE_DIR}/backends/imgui_impl_glfw.cpp 
     ${dear_imgui_SOURCE_DIR}/backends/imgui_impl_dx12.cpp
     ${dear_imgui_SOURCE_DIR}/imgui.cpp 
