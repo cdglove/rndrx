@@ -11,9 +11,9 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-cmake_minimum_required(VERSION 3.21)
+cmake_minimum_required(VERSION 3.24)
 project(rndrx LANGUAGES CXX VERSION 0.0.1)
-set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD 20)
 
 include(FetchContent)
 FetchContent_Declare(
@@ -74,6 +74,7 @@ set_target_properties(
              IMPORTED_IMPLIB "${dxc_SOURCE_DIR}/lib/x64/dxcompiler.lib"
              INTERFACE_INCLUDE_DIRECTORIES "${dxc_SOURCE_DIR}/inc")
 
+# Asset download
 FetchContent_Declare(
     assets
     URL https://drive.google.com/u/0/uc?id=1XJCf1I9GzAqOXX42Z8YvpnM135vO4a4x&export=download&confirm=t&uuid=e1b175e1-61be-4dd8-92e4-37aa456d459b
@@ -94,3 +95,4 @@ if(MSVC)
 endif()
 
 add_subdirectory(dx12)
+add_subdirectory(vulkan)
