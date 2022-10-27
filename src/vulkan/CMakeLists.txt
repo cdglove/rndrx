@@ -13,6 +13,37 @@
 # limitations under the License.
 find_package(Vulkan REQUIRED)
 
+option(SPIRV_REFLECT_EXECUTABLE    "" OFF)
+option(SPIRV_REFLECT_EXAMPLES      "" OFF)
+option(SPIRV_REFLECT_STATIC_LIB    "" ON)
+FetchContent_Declare(
+    spirv_reflect
+    GIT_REPOSITORY https://github.com/KhronosGroup/SPIRV-Reflect.git
+    GIT_TAG sdk-1.3.224.1)
+FetchContent_MakeAvailable(spirv_reflect)
+
+include(${PROJECT_SOURCE_DIR}/cmake/shaders.cmake)
+
+add_custom_target(vulkan_shaders)
+macro(add_vertex_shader SHADER_FILE ENTRY_POINT)
+  get_filename_component(FILE_WE ${SHADER_FILE} NAME_WE)
+  set(TARGET_NAME ${FILE_WE}.${ENTRY_POINT}.spirv)
+  add_vulkan_vertex_shader(${TARGET_NAME} ${SHADER_FILE} ${ENTRY_POINT})
+  add_dependencies(vulkan_shaders ${TARGET_NAME})
+endmacro()
+
+macro(add_fragment_shader SHADER_FILE ENTRY_POINT)
+  get_filename_component(FILE_WE ${SHADER_FILE} NAME_WE)
+  set(TARGET_NAME ${FILE_WE}.${ENTRY_POINT}.spirv)
+  add_vulkan_fragment_shader(${TARGET_NAME} ${SHADER_FILE} ${ENTRY_POINT})
+  add_dependencies(vulkan_shaders ${TARGET_NAME})
+endmacro()
+
+add_vertex_shader(assets/shaders/fullscreen_quad.hlsl VSMain)
+add_vertex_shader(assets/shaders/static_model.hlsl VSMain)
+add_fragment_shader(assets/shaders/fullscreen_quad.hlsl CopyImageInv)
+add_fragment_shader(assets/shaders/static_model.hlsl Phong)
+
 set(SOURCES 
     main.cpp
     ${dear_imgui_SOURCE_DIR}/backends/imgui_impl_glfw.cpp 
@@ -25,11 +56,13 @@ set(SOURCES
     ${dear_imgui_SOURCE_DIR}/misc/cpp/imgui_stdlib.cpp)
 
 add_executable(rndrx-vulkan ${SOURCES})
+add_dependencies(rndrx-vulkan vulkan_shaders)
 
 target_link_libraries(rndrx-vulkan 
-    PUBLIC glfw glm tinyobjloader Vulkan::Vulkan)
+    PUBLIC glfw glm tinyobjloader Vulkan::Vulkan spirv-reflect-static)
 
 target_include_directories(rndrx-vulkan PUBLIC 
+    ${PROJECT_SOURCE_DIR}/include
     ${dear_imgui_SOURCE_DIR} 
     ${dear_imgui_SOURCE_DIR}/backends
     ${dear_imgui_SOURCE_DIR}/misc/cpp
@@ -42,11 +75,6 @@ target_compile_definitions(rndrx-vulkan PUBLIC
     IMGUI_DISABLE_OBSOLETE_FUNCTIONS
     $<$<CONFIG:DEBUG>:RNDRX_ENABLE_VULKAN_DEBUG_LAYER=1>
     $<$<CONFIG:DEBUG>:RNDRX_ENABLE_SHADER_DEBUGGING=1>)
-
-# Link the assets directory to the binary output dir so that debugging works out of box
-# file(CREATE_LINK ${PROJECT_BINARY_DIR}/stage/assets 
-#                  ${PROJECT_BINARY_DIR}/vulkan/assets
-#                  SYMBOLIC) 
 
 # add_custom_command(
 #     TARGET rndrx-vulkan POST_BUILD
