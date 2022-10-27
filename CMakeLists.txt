@@ -15,6 +15,10 @@ cmake_minimum_required(VERSION 3.24)
 project(rndrx LANGUAGES CXX VERSION 0.0.1)
 set(CMAKE_CXX_STANDARD 20)
 
+if(MSVC)
+    add_compile_options(/EHsc)
+endif()
+
 include(FetchContent)
 FetchContent_Declare(
     dear_imgui
@@ -62,8 +66,8 @@ FetchContent_MakeAvailable(tinyobjloader)
 
 FetchContent_Declare(
     dxc
-    URL https://github.com/microsoft/DirectXShaderCompiler/releases/download/v1.6.2112/dxc_2021_12_08.zip
-    URL_HASH MD5=e9e899c387f29ecaa1bfdeb1252775e3
+    URL https://github.com/microsoft/DirectXShaderCompiler/releases/download/v1.7.2207/dxc_2022_07_18.zip
+    URL_HASH MD5=e226cd9fee7f3b9015c0767c9035123c
 )
 FetchContent_MakeAvailable(dxc)
 FetchContent_GetProperties(dxc SOURCE_DIR dxc_SOURCE_DIR)
@@ -83,16 +87,6 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(assets)       
 FetchContent_GetProperties(assets SOURCE_DIR assets_SOURCE_DIR)     
 
-# Prepare a common staging directory for all targets
-file(COPY ${assets_SOURCE_DIR}/models ${assets_SOURCE_DIR}/textures
-     DESTINATION ${PROJECT_BINARY_DIR}/stage/assets)
-
-file(COPY ${PROJECT_SOURCE_DIR}/assets/shaders
-     DESTINATION ${PROJECT_BINARY_DIR}/stage/assets)
-
-if(MSVC)
-    add_compile_options(/EHsc)
-endif()
-
-add_subdirectory(dx12)
-add_subdirectory(vulkan)
+add_subdirectory(assets)
+add_subdirectory(src/dx12)
+add_subdirectory(src/vulkan)

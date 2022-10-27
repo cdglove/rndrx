@@ -105,3 +105,4 @@ float4 Phong(PSInput input)
   final_colour += ambient_colour;
   return float4(final_colour, 1.f);
 }
+
