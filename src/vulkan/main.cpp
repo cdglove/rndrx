@@ -37,6 +37,7 @@
 #include <glm/vec4.hpp>
 #include <iostream>
 #include <iterator>
+#include <memory>
 #include <limits>
 #include <queue>
 #include <ranges>
@@ -51,7 +52,6 @@
 #include <vulkan/vulkan_handles.hpp>
 #include <vulkan/vulkan_raii.hpp>
 #include <vulkan/vulkan_structs.hpp>
-#include <xutility>
 #include "application.hpp"
 #include "device.hpp"
 #include "imgui.h"

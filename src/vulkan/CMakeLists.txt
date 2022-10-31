@@ -13,6 +13,8 @@
 # limitations under the License.
 find_package(Vulkan REQUIRED)
 
+include(${PROJECT_SOURCE_DIR}/cmake/shaders.cmake)
+
 option(SPIRV_REFLECT_EXECUTABLE    "" OFF)
 option(SPIRV_REFLECT_EXAMPLES      "" OFF)
 option(SPIRV_REFLECT_STATIC_LIB    "" ON)
