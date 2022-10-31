@@ -78,15 +78,6 @@ set_target_properties(
              IMPORTED_IMPLIB "${dxc_SOURCE_DIR}/lib/x64/dxcompiler.lib"
              INTERFACE_INCLUDE_DIRECTORIES "${dxc_SOURCE_DIR}/inc")
 
-# Asset download
-FetchContent_Declare(
-    assets
-    URL https://drive.google.com/u/0/uc?id=1XJCf1I9GzAqOXX42Z8YvpnM135vO4a4x&export=download&confirm=t&uuid=e1b175e1-61be-4dd8-92e4-37aa456d459b
-    URL_HASH MD5=365e2117463501ebee5d521d90068229
-)
-FetchContent_MakeAvailable(assets)       
-FetchContent_GetProperties(assets SOURCE_DIR assets_SOURCE_DIR)     
-
 add_subdirectory(assets)
 add_subdirectory(src/dx12)
 add_subdirectory(src/vulkan)

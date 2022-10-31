@@ -13,25 +13,11 @@
 # limitations under the License.
 include(${PROJECT_SOURCE_DIR}/cmake/shaders.cmake)
 
-add_custom_target(d3d12_shaders)
-macro(add_vertex_shader SHADER_FILE ENTRY_POINT)
-  get_filename_component(FILE_WE ${SHADER_FILE} NAME_WE)
-  set(TARGET_NAME ${FILE_WE}.${ENTRY_POINT}.dxil)
-  add_d3d12_vertex_shader(${TARGET_NAME} ${SHADER_FILE} ${ENTRY_POINT})
-  add_dependencies(d3d12_shaders ${TARGET_NAME})
-endmacro()
-
-macro(add_fragment_shader SHADER_FILE ENTRY_POINT)
-  get_filename_component(FILE_WE ${SHADER_FILE} NAME_WE)
-  set(TARGET_NAME ${FILE_WE}.${ENTRY_POINT}.dxil)
-  add_d3d12_fragment_shader(${TARGET_NAME} ${SHADER_FILE} ${ENTRY_POINT})
-  add_dependencies(d3d12_shaders ${TARGET_NAME})
-endmacro()
-
-add_vertex_shader(assets/shaders/fullscreen_quad.hlsl VSMain)
-add_vertex_shader(assets/shaders/static_model.hlsl VSMain)
-add_fragment_shader(assets/shaders/fullscreen_quad.hlsl CopyImageInv)
-add_fragment_shader(assets/shaders/static_model.hlsl Phong)
+add_custom_target(d3d12_shaders ALL)
+add_d3d12_vertex_shader(TARGET d3d12_shaders SOURCE ../../assets/shaders/fullscreen_quad.hlsl ENTRY_POINT VSMain)
+add_d3d12_vertex_shader(TARGET d3d12_shaders SOURCE ../../assets/shaders/static_model.hlsl ENTRY_POINT VSMain)
+add_d3d12_fragment_shader(TARGET d3d12_shaders SOURCE ../../assets/shaders/fullscreen_quad.hlsl ENTRY_POINT CopyImageInv)
+add_d3d12_fragment_shader(TARGET d3d12_shaders SOURCE ../../assets/shaders/static_model.hlsl ENTRY_POINT Phong)
 
 set(SOURCES
     main.cpp
@@ -46,7 +32,6 @@ set(SOURCES
     ${dear_imgui_SOURCE_DIR}/misc/cpp/imgui_stdlib.cpp)
 
 add_executable(rndrx-dx12 ${SOURCES})
-add_dependencies(rndrx-dx12 d3d12_shaders)
 
 target_link_libraries(rndrx-dx12
     PUBLIC d3d12 dxgi glfw glm tinyobjloader dxc
