@@ -24,9 +24,10 @@ FetchContent_GetProperties(assets SOURCE_DIR assets_SOURCE_DIR)
 
 cmake_path(RELATIVE_PATH assets_SOURCE_DIR OUTPUT_VARIABLE assets_SOURCE_DIR_RELATIVE)
 
-add_models(TARGET  common_models 
-           SOURCES ${assets_SOURCE_DIR_RELATIVE}/models/cottage.obj
-                   ${assets_SOURCE_DIR_RELATIVE}/models/sphere.obj
+add_models(TARGET      common_models
+           SOURCE_ROOT ${assets_SOURCE_DIR}
+           SOURCES     models/cottage.obj
+                       models/sphere.obj
 )
 
 add_custom_target(all_models ALL DEPENDS common_models)
