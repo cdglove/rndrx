@@ -53,7 +53,7 @@ class ShaderCache : noncopyable {
       SpvReflectDescriptorBinding& reflected_binding =
           reflected_module.descriptor_bindings[i];
       layout_bindings.push_back(vk::DescriptorSetLayoutBinding(
-          reflected_binding.binding,
+          i,
           static_cast<vk::DescriptorType>(reflected_binding.descriptor_type),
           reflected_binding.count,
           static_cast<vk::ShaderStageFlags>(

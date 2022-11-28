@@ -27,6 +27,7 @@
 #include <algorithm>
 #include <array>
 #include <chrono>
+#include <filesystem>
 #include <functional>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtx/fast_trigonometry.hpp>
@@ -61,7 +62,6 @@
 #include "rndrx/noncopyable.hpp"
 #include "shader_cache.hpp"
 #include "swapchain.hpp"
-#include <filesystem>
 
 VKAPI_ATTR vk::Bool32 VKAPI_CALL vulkan_validation_callback(
     VkDebugUtilsMessageSeverityFlagBitsEXT severity,
@@ -76,7 +76,11 @@ VKAPI_ATTR vk::Bool32 VKAPI_CALL vulkan_validation_callback(
   return VK_FALSE;
 }
 
-void load_shader(rndrx::vulkan::Device& device, std::vector<std::uint32_t>& buffer, rndrx::vulkan::ShaderCache& cache, std::string_view shader) {
+void load_shader(
+    rndrx::vulkan::Device& device,
+    std::vector<std::uint32_t>& buffer,
+    rndrx::vulkan::ShaderCache& cache,
+    std::string_view shader) {
   std::filesystem::path p(shader);
   auto filesize = std::filesystem::file_size(p);
   std::ifstream instream(p, std::ios::binary);
@@ -88,8 +92,16 @@ void load_shader(rndrx::vulkan::Device& device, std::vector<std::uint32_t>& buff
 rndrx::vulkan::ShaderCache load_shaders(rndrx::vulkan::Device& device) {
   rndrx::vulkan::ShaderCache cache;
   std::vector<std::uint32_t> buffer;
-  load_shader(device, buffer, cache, "assets/shaders/fullscreen_quad.vsmain.spv");
-  load_shader(device, buffer, cache, "assets/shaders/fullscreen_quad.psmain.spv");
+  load_shader(
+      device,
+      buffer,
+      cache,
+      "assets/shaders/fullscreen_quad.vsmain.spv");
+  load_shader(
+      device,
+      buffer,
+      cache,
+      "assets/shaders/fullscreen_quad.copyimageinv.spv");
   load_shader(device, buffer, cache, "assets/shaders/static_model.vsmain.spv");
   load_shader(device, buffer, cache, "assets/shaders/static_model.phong.spv");
   return cache;
@@ -202,46 +214,69 @@ class SubmissionContext : noncopyable {
 
 class FinalCompositeRenderPass : rndrx::noncopyable {
  public:
-  FinalCompositeRenderPass(rndrx::vulkan::Device const& device, rndrx::vulkan::ShaderCache const& sc)
+  FinalCompositeRenderPass(
+      rndrx::vulkan::Device const& device,
+      rndrx::vulkan::ShaderCache const& sc)
       : copy_image_pipeline_(nullptr) {
     create_pipeline(device, sc);
   }
 
  private:
-  void create_pipeline(rndrx::vulkan::Device const& device, rndrx::vulkan::ShaderCache const& sc) {
-    vk::ShaderModule vertex_shader = *sc.get("assets/shaders/fullscreen_quad.vsmain.spv").module;
-    vk::ShaderModule fragment_shader = *sc.get("assets/shaders/fullscreen_quad.copyimageinv.spv").module;
+  void create_pipeline(
+      rndrx::vulkan::Device const& device,
+      rndrx::vulkan::ShaderCache const& sc) {
+    vk::ShaderModule vertex_shader =
+        *sc.get("assets/shaders/fullscreen_quad.vsmain.spv").module;
+    vk::ShaderModule fragment_shader =
+        *sc.get("assets/shaders/fullscreen_quad.copyimageinv.spv").module;
     std::array<vk::PipelineShaderStageCreateInfo, 2> stage_info = {
         vk::PipelineShaderStageCreateInfo(
             {},
             vk::ShaderStageFlagBits::eVertex,
             vertex_shader,
-            "final-composite-fullscreen-tri",
+            "VSMain",
             nullptr),
         vk::PipelineShaderStageCreateInfo(
             {},
             vk::ShaderStageFlagBits::eFragment,
             fragment_shader,
-            "final-composite-copy-texels",
+            "CopyImageInv",
             nullptr)};
-            
+
     std::array<vk::DynamicState, 1> dynamic_states = {vk::DynamicState::eViewport};
     vk::PipelineDynamicStateCreateInfo dynamic_state_create_info(
         {},
         dynamic_states.size(),
         dynamic_states.data());
+
+    // vk::Viewport viewport(
+    // vk::PipelineViewportStateCreateInfo viewport_state_create_info({}, 1, &viewport);
+    vk::PipelineRasterizationStateCreateInfo rasterization_state_create_info(
+        {},
+        {},
+        VK_TRUE,
+        vk::PolygonMode::eFill,
+        {},
+        vk::FrontFace::eCounterClockwise,
+        VK_FALSE,
+        0.f,
+        0.f,
+        0.f,
+        1.f);
     vk::GraphicsPipelineCreateInfo create_info(
         {},
         stage_info,
         nullptr,
         nullptr,
         nullptr,
-        nullptr,
-        nullptr,
+        nullptr, //&viewport_state_create_info,
+        &rasterization_state_create_info,
         nullptr,
         nullptr,
         nullptr,
         &dynamic_state_create_info);
+
+    copy_image_pipeline_ = device.vk().createGraphicsPipeline(nullptr, create_info);
   }
 
   vk::raii::Pipeline copy_image_pipeline_;
@@ -476,6 +511,7 @@ bool rndrx::vulkan::Application::run() {
   ImGuiRenderPass imgui(window_, *this, device, swapchain);
 
   ShaderCache shaders = load_shaders(device);
+  FinalCompositeRenderPass final_composite(device, shaders);
 
   std::array<SubmissionContext, 3> submission_contexts = {
       {SubmissionContext(device),
@@ -499,6 +535,7 @@ bool rndrx::vulkan::Application::run() {
 
     PresentContext present_context = swapchain.create_present_context(frame_id);
     Image final_image = present_context.acquire_next_image();
+
     // RenderContext composite_context;
     // composite_context.set_targets(window_.extents(), final_image.view());
 
