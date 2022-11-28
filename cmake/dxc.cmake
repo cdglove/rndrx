@@ -11,9 +11,9 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
-# If building for Windows
-if(WIN32)
+  
+# If building from Windows we can use prebuilt dxc
+if(CMAKE_HOST_SYSTEM_NAME STREQUAL "Windows")
     FetchContent_Declare(
         dxc
         URL https://github.com/microsoft/DirectXShaderCompiler/releases/download/v1.7.2207/dxc_2022_07_18.zip
@@ -27,10 +27,7 @@ if(WIN32)
         IMPORTED_LOCATION "${dxc_SOURCE_DIR}/bin/x64/dxcompiler.dll;${dxc_SOURCE_DIR}/bin/x64/dxil.dll"
         IMPORTED_IMPLIB "${dxc_SOURCE_DIR}/lib/x64/dxcompiler.lib"
         INTERFACE_INCLUDE_DIRECTORIES "${dxc_SOURCE_DIR}/inc")
-endif()
-    
-# If building from Windows.
-if(CMAKE_HOST_SYSTEM_NAME EQUAL Windows)
+
   set(DXC_EXECUTABLE ${dxc_SOURCE_DIR}/bin/x64/dxc.exe)
 else()
     # Copied from "${dxc_SOURCE_DIR}/cmake/caches/PredefinedParams.cmake"
@@ -55,7 +52,6 @@ else()
     set(HLSL_INCLUDE_TESTS ON CACHE BOOL "") 
     set(ENABLE_SPIRV_CODEGEN ON CACHE BOOL "") 
     set(SPIRV_BUILD_TESTS ON CACHE BOOL "")
-    set(CMAKE_CXX_STANDARD 17)
 
     FetchContent_Declare(
         dxc
