@@ -27,7 +27,9 @@ FetchContent_MakeAvailable(spirv_reflect)
 add_custom_target(vulkan_shaders ALL)
 add_vulkan_vertex_shader(TARGET vulkan_shaders SOURCE ../../assets/shaders/fullscreen_quad.hlsl ENTRY_POINT VSMain)
 add_vulkan_vertex_shader(TARGET vulkan_shaders SOURCE ../../assets/shaders/static_model.hlsl ENTRY_POINT VSMain)
-add_vulkan_fragment_shader(TARGET vulkan_shaders SOURCE ../../assets/shaders/fullscreen_quad.hlsl ENTRY_POINT CopyImageInv)
+add_vulkan_fragment_shader(TARGET vulkan_shaders SOURCE ../../assets/shaders/fullscreen_quad.hlsl ENTRY_POINT CopyImageOpaque)
+add_vulkan_fragment_shader(TARGET vulkan_shaders SOURCE ../../assets/shaders/fullscreen_quad.hlsl ENTRY_POINT BlendImage)
+add_vulkan_fragment_shader(TARGET vulkan_shaders SOURCE ../../assets/shaders/fullscreen_quad.hlsl ENTRY_POINT BlendImageInv)
 add_vulkan_fragment_shader(TARGET vulkan_shaders SOURCE ../../assets/shaders/static_model.hlsl ENTRY_POINT Phong)
 
 set(SOURCES 
@@ -54,12 +56,52 @@ target_include_directories(rndrx-vulkan PUBLIC
     ${stb_SOURCE_DIR})
 
 target_compile_definitions(rndrx-vulkan PUBLIC
-    _CRT_SECURE_NO_DEPRECATE
-    _CRT_SECURE_NO_WARNINGS
-    IMGUI_USE_STB_SPRINTF
-    IMGUI_DISABLE_OBSOLETE_FUNCTIONS
+    _CRT_SECURE_NO_DEPRECATE=1
+    _CRT_SECURE_NO_WARNINGS=1
+    IMGUI_USE_STB_SPRINTF=1
+    IMGUI_DISABLE_OBSOLETE_FUNCTIONS=1
+    NOMINMAX=1
+    WIN32_LEAN_AND_MEAN=1
+    GLFW_EXPOSE_NATIVE_WIN32
+    GLFW_INCLUDE_VULKAN
+    GLM_FORCE_RADIANS=1
+    GLM_FORCE_DEPTH_ZERO_TO_ONE=1
+    GLM_FORCE_DEFAULT_ALIGNED_GENTYPES=1
     $<$<CONFIG:DEBUG>:RNDRX_ENABLE_VULKAN_DEBUG_LAYER=1>
     $<$<CONFIG:DEBUG>:RNDRX_ENABLE_SHADER_DEBUGGING=1>)
+
+target_precompile_headers(rndrx-vulkan PUBLIC
+        <vulkan/vulkan_core.h>
+        <algorithm>
+        <array>
+        <chrono>
+        <filesystem>
+        <functional>
+        <glm/gtc/matrix_transform.hpp>
+        <glm/gtx/fast_trigonometry.hpp>
+        <glm/mat3x3.hpp>
+        <glm/mat4x4.hpp>
+        <glm/vec2.hpp>
+        <glm/vec3.hpp>
+        <glm/vec4.hpp>
+        <iostream>
+        <iterator>
+        <limits>
+        <memory>
+        <queue>
+        <ranges>
+        <sstream>
+        <stdexcept>
+        <string>
+        <string_view>
+        <unordered_map>
+        <vector>
+        <vulkan/vulkan.hpp>
+        <vulkan/vulkan_enums.hpp>
+        <vulkan/vulkan_handles.hpp>
+        <vulkan/vulkan_raii.hpp>
+        <vulkan/vulkan_structs.hpp>
+    )
 
 # add_custom_command(
 #     TARGET rndrx-vulkan POST_BUILD

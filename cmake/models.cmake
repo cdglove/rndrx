@@ -38,9 +38,7 @@ endfunction()
 function(add_models)
   cmake_parse_arguments(ADD_MODELS "" "TARGET;SOURCE_ROOT" "SOURCES" ${ARGN})
   add_custom_target(${ADD_MODELS_TARGET})
-  message("Adding models ${ADD_MODELS_SOURCES}")
   foreach(FILE IN ITEMS ${ADD_MODELS_SOURCES})
-    message("Adding model ${FILE}")
     add_model(TARGET      ${ADD_MODELS_TARGET} 
               SOURCE_ROOT ${ADD_MODELS_SOURCE_ROOT} 
               SOURCE ${FILE})

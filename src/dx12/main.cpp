@@ -2298,9 +2298,9 @@ class Application : noncopyable {
 
     ShaderCache<FragmentShaderHandle> fragment_shaders("ps_6_0");
     auto fullscreen_ps =
-        fragment_shaders.compile(sc, "fullscreen_quad", "PSMain");
+        fragment_shaders.compile(sc, "fullscreen_quad", "CopyImageOpaque");
     auto fullscreen_ps_inv =
-        fragment_shaders.compile(sc, "fullscreen_quad", "PSMainInv");
+        fragment_shaders.compile(sc, "fullscreen_quad", "BlendImageInv");
     auto albedo_ps = fragment_shaders.compile(sc, "static_model", "Albedo");
     auto phong_ps = fragment_shaders.compile(sc, "static_model", "Phong");
     auto debug_ps = fragment_shaders.compile(sc, "static_model", "Debug");
@@ -2312,7 +2312,7 @@ class Application : noncopyable {
     load(background, resource_creator, "assets/textures/background.jpg");
 
     Geometry main_geometry;
-    load(main_geometry, resource_creator, "assets/models/cottage.obj");
+    load(main_geometry, resource_creator, "assets/models/cottage.model");
 
     Image main_albedo;
     load(
@@ -2327,7 +2327,7 @@ class Application : noncopyable {
         "assets/textures/Cottage_Clean/Cottage_Clean_Normal.png");
 
     Geometry debug_sphere;
-    load(debug_sphere, resource_creator, "assets/models/sphere.obj");
+    load(debug_sphere, resource_creator, "assets/models/sphere.model");
 
     Model main_model(main_geometry, main_albedo, main_normal);
     resource_creator.finish_loading();

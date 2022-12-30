@@ -21,10 +21,20 @@ static const float4 positions[] = {
     float4(3.f, -1.f, 0.f, 1.f),
     float4(-1.f, -1.f, 0.f, 1.f)};
 
+#ifdef __spirv__
+// NDC in vulkan puts -1, -1 at the top left
+// whereas dx12 puts -1, 1 in the top left. 
+static const float2 uvs[] = {
+    float2(0, 2.f),
+    float2(2, 0),
+    float2(0, 0),
+  };
+#else 
 static const float2 uvs[] = {
     float2(0, -1.f),
     float2(2, 1),
     float2(0, 1)};
+#endif
 
 PSInput VSMain(uint id : SV_VertexID) {
   PSInput result;
@@ -36,13 +46,19 @@ PSInput VSMain(uint id : SV_VertexID) {
 Texture2D g_texture : register(t0);
 SamplerState g_sampler : register(s0);
 
-float4 CopyImage(PSInput input)
+float4 CopyImageOpaque(PSInput input)
+    : SV_TARGET {
+    float4 colour = g_texture.Sample(g_sampler, input.uv);
+    return float4(colour.xyz, 1.f);
+}
+
+float4 BlendImage(PSInput input)
     : SV_TARGET {
     float4 colour = g_texture.Sample(g_sampler, input.uv);
     return colour;
 }
 
-float4 CopyImageInv(PSInput input)
+float4 BlendImageInv(PSInput input)
     : SV_TARGET {
     float4 colour = g_texture.Sample(g_sampler, input.uv);
     return float4(colour.xyz, 1 - colour.a);

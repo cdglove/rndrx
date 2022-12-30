@@ -19,8 +19,8 @@
 #include <vulkan/vulkan_handles.hpp>
 #include <vulkan/vulkan_raii.hpp>
 #include <vulkan/vulkan_structs.hpp>
-#include "rndrx/noncopyable.hpp"
 #include "image.hpp"
+#include "rndrx/noncopyable.hpp"
 
 namespace rndrx::vulkan {
 
@@ -28,12 +28,12 @@ class PresentContext : noncopyable {
  public:
   PresentContext(
       vk::raii::SwapchainKHR const& swapchain,
-      std::vector<VkImage> swapchain_images,
+      std::vector<vk::Image> swapchain_images,
       std::vector<vk::raii::ImageView> const& swapchain_image_views,
       vk::raii::Queue const& present_queue,
       vk::Semaphore image_ready_semaphore)
       : swapchain_(swapchain)
-      , swapchain_images_(swapchain_images)
+      , swapchain_images_(std::move(swapchain_images))
       , swapchain_image_views_(swapchain_image_views)
       , present_queue_(present_queue)
       , image_ready_semaphore_(image_ready_semaphore) {
@@ -49,13 +49,17 @@ class PresentContext : noncopyable {
 
     image_idx_ = result.second;
 
-    return {
-        vk::Image(swapchain_images_[image_idx_]),
-        *swapchain_image_views_[image_idx_]};
+    return {swapchain_images_[image_idx_], *swapchain_image_views_[image_idx_]};
   }
 
   void present() {
-    vk::PresentInfoKHR present_info(0, nullptr, 1, &*swapchain_, &image_idx_);
+    vk::PresentInfoKHR present_info;
+    present_info //
+        .setWaitSemaphoreCount(1)
+        .setPWaitSemaphores(&image_ready_semaphore_)
+        .setSwapchainCount(1)
+        .setPSwapchains(&*swapchain_)
+        .setPImageIndices(&image_idx_);
     auto result = present_queue_.presentKHR(present_info);
     if(result != vk::Result::eSuccess) {
       throw_runtime_error("Failed to handle swapchain present failure");
@@ -64,7 +68,7 @@ class PresentContext : noncopyable {
 
  private:
   vk::raii::SwapchainKHR const& swapchain_;
-  std::vector<VkImage> swapchain_images_;
+  std::vector<vk::Image> swapchain_images_;
   std::vector<vk::raii::ImageView> const& swapchain_image_views_;
   vk::raii::Queue const& present_queue_;
   vk::Semaphore image_ready_semaphore_;
@@ -161,7 +165,7 @@ class Swapchain : noncopyable {
     std::ranges::transform(
         swapchain_images_,
         std::back_inserter(swapchain_image_views_),
-        [this, &device](VkImage img) {
+        [this, &device](vk::Image img) {
           vk::ImageViewCreateInfo create_info(
               {},
               img,
@@ -214,7 +218,7 @@ class Swapchain : noncopyable {
       auto selected_format = std::ranges::find_if(
           formats_,
           [](vk::SurfaceFormatKHR available_format) {
-            return available_format.format == vk::Format::eB8G8R8A8Srgb &&
+            return available_format.format == vk::Format::eB8G8R8A8Unorm &&
                    available_format.colorSpace == vk::ColorSpaceKHR::eSrgbNonlinear;
           });
 
@@ -287,7 +291,7 @@ class Swapchain : noncopyable {
 
   Device const& device_;
   vk::raii::SwapchainKHR swapchain_;
-  std::vector<VkImage> swapchain_images_;
+  std::vector<vk::Image> swapchain_images_;
   std::vector<vk::raii::ImageView> swapchain_image_views_;
   std::vector<vk::raii::Framebuffer> framebuffers_;
   std::vector<vk::raii::Semaphore> image_ready_semaphores_;

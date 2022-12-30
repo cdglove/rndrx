@@ -35,12 +35,12 @@ endfunction()
 
 function(add_vulkan_vertex_shader)
   cmake_parse_arguments(ADD_SHADER "" "SOURCE;ENTRY_POINT;TARGET" "" ${ARGN})
-  _compile_shader_and_add_to_target(${ADD_SHADER_SOURCE} ${ADD_SHADER_TARGET} "spv" ${ADD_SHADER_ENTRY_POINT} "vs" "-spirv")
+  _compile_shader_and_add_to_target(${ADD_SHADER_SOURCE} ${ADD_SHADER_TARGET} "spv" ${ADD_SHADER_ENTRY_POINT} "vs" "-spirv;-fspv-entrypoint-name=main")
 endfunction()
 
 function(add_vulkan_fragment_shader)
   cmake_parse_arguments(ADD_SHADER "" "SOURCE;ENTRY_POINT;TARGET" "" ${ARGN})
-  _compile_shader_and_add_to_target(${ADD_SHADER_SOURCE} ${ADD_SHADER_TARGET} "spv" ${ADD_SHADER_ENTRY_POINT} "ps" "-spirv")
+  _compile_shader_and_add_to_target(${ADD_SHADER_SOURCE} ${ADD_SHADER_TARGET} "spv" ${ADD_SHADER_ENTRY_POINT} "ps" "-spirv;-fspv-entrypoint-name=main")
 endfunction()
 
 function(add_vulkan_vertex_shaders)

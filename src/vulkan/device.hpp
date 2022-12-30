@@ -15,25 +15,30 @@
 #define RNDRX_VULKAN_DEVICE_HPP_
 #pragma once
 
-#include "rndrx/noncopyable.hpp"
 #include <vulkan/vulkan.hpp>
+#include <vulkan/vulkan_enums.hpp>
 #include <vulkan/vulkan_handles.hpp>
 #include <vulkan/vulkan_raii.hpp>
 #include <vulkan/vulkan_structs.hpp>
 #include "application.hpp"
+#include "rndrx/noncopyable.hpp"
 
 namespace rndrx::vulkan {
 
 class Device : noncopyable {
  public:
-  explicit Device(Application const& app)
-      : device_(nullptr)
-      , graphics_queue_(nullptr) {
+  explicit Device(Application const& app) {
     create_device(app);
+    create_descriptor_pool();
   }
 
   vk::raii::Device const& vk() const {
     return device_;
+  }
+
+  vk::DescriptorPool descriptor_pool() { // intentionally non-const const since
+                                         // descriptor_pool_ can be modified
+    return *descriptor_pool_;
   }
 
   std::uint32_t graphics_queue_family_idx() const {
@@ -80,10 +85,32 @@ class Device : noncopyable {
     graphics_queue_ = device_.getQueue(gfx_queue_idx_, 0);
   }
 
-  vk::raii::Device device_;
-  vk::raii::Queue graphics_queue_;
-  vk::PhysicalDevice physical_device_;
-  std::uint32_t gfx_queue_idx_;
+  void create_descriptor_pool() {
+    std::array<vk::DescriptorPoolSize, 11> pool_sizes = {
+        {{vk::DescriptorType::eSampler, 1000},
+         {vk::DescriptorType::eCombinedImageSampler, 1000},
+         {vk::DescriptorType::eSampledImage, 1000},
+         {vk::DescriptorType::eStorageImage, 1000},
+         {vk::DescriptorType::eUniformTexelBuffer, 1000},
+         {vk::DescriptorType::eStorageTexelBuffer, 1000},
+         {vk::DescriptorType::eUniformBuffer, 1000},
+         {vk::DescriptorType::eStorageBuffer, 1000},
+         {vk::DescriptorType::eUniformBufferDynamic, 1000},
+         {vk::DescriptorType::eStorageBufferDynamic, 1000},
+         {vk::DescriptorType::eInputAttachment, 1000}}};
+
+    vk::DescriptorPoolCreateInfo create_info;
+    create_info.setFlags(vk::DescriptorPoolCreateFlagBits::eFreeDescriptorSet)
+        .setMaxSets(1000)
+        .setPoolSizes(pool_sizes);
+    descriptor_pool_ = device_.createDescriptorPool(create_info);
+  }
+
+  vk::raii::Device device_ = nullptr;
+  vk::raii::Queue graphics_queue_ = nullptr;
+  vk::raii::DescriptorPool descriptor_pool_ = nullptr;
+  vk::PhysicalDevice physical_device_ = nullptr;
+  std::uint32_t gfx_queue_idx_ = 0;
 };
 
 } // namespace rndrx::vulkan

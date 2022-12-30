@@ -143,6 +143,18 @@ class Application : noncopyable {
     return physical_devices_[selected_device_idx_];
   }
 
+  std::span<const vk::raii::PhysicalDevice> physical_devices() const {
+    return physical_devices_;
+  }
+
+  void select_device(int idx) {
+    selected_device_idx_ = idx;
+  }
+
+  int selected_device_index() const {
+    return selected_device_idx_;
+  }
+
   Window const& window() const {
     return window_;
   }
@@ -234,7 +246,7 @@ class Application : noncopyable {
   vk::raii::DebugUtilsMessengerEXT messenger_;
   std::vector<vk::raii::PhysicalDevice> physical_devices_;
   vk::raii::SurfaceKHR surface_;
-  std::uint32_t selected_device_idx_ = 0;
+  int selected_device_idx_ = 1;
 };
 } // namespace rndrx::vulkan
 

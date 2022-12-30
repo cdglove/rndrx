@@ -16,7 +16,9 @@ include(${PROJECT_SOURCE_DIR}/cmake/shaders.cmake)
 add_custom_target(d3d12_shaders ALL)
 add_d3d12_vertex_shader(TARGET d3d12_shaders SOURCE ../../assets/shaders/fullscreen_quad.hlsl ENTRY_POINT VSMain)
 add_d3d12_vertex_shader(TARGET d3d12_shaders SOURCE ../../assets/shaders/static_model.hlsl ENTRY_POINT VSMain)
-add_d3d12_fragment_shader(TARGET d3d12_shaders SOURCE ../../assets/shaders/fullscreen_quad.hlsl ENTRY_POINT CopyImageInv)
+add_d3d12_fragment_shader(TARGET d3d12_shaders SOURCE ../../assets/shaders/fullscreen_quad.hlsl ENTRY_POINT CopyImageOpaque)
+add_d3d12_fragment_shader(TARGET d3d12_shaders SOURCE ../../assets/shaders/fullscreen_quad.hlsl ENTRY_POINT BlendImage)
+add_d3d12_fragment_shader(TARGET d3d12_shaders SOURCE ../../assets/shaders/fullscreen_quad.hlsl ENTRY_POINT BlendImageInv)
 add_d3d12_fragment_shader(TARGET d3d12_shaders SOURCE ../../assets/shaders/static_model.hlsl ENTRY_POINT Phong)
 
 set(SOURCES
@@ -51,15 +53,15 @@ target_compile_definitions(rndrx-dx12 PUBLIC
     $<$<CONFIG:DEBUG>:RNDRX_ENABLE_DX12_DEBUG_LAYER=1>
     $<$<CONFIG:DEBUG>:RNDRX_ENABLE_SHADER_DEBUGGING=1>)
 
-# add_custom_command(
-#     TARGET rndrx-dx12 POST_BUILD
-#     COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_RUNTIME_DLLS:rndrx-dx12> ${PROJECT_BINARY_DIR}/stage
-#     COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:rndrx-dx12> ${PROJECT_BINARY_DIR}/stage
-#     COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_RUNTIME_DLLS:rndrx-dx12> ${PROJECT_BINARY_DIR}/dx12
-#     # When debugging, the working directory is set to the project dir, not the
-#     # executable dir, so we need to put the ddls there too for them to be found.
-#     COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_RUNTIME_DLLS:rndrx-dx12> ${PROJECT_BINARY_DIR}
-#     COMMAND_EXPAND_LISTS)
+add_custom_command(
+    TARGET rndrx-dx12 POST_BUILD
+    #COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_RUNTIME_DLLS:rndrx-dx12> ${PROJECT_BINARY_DIR}/stage
+    #COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:rndrx-dx12> ${PROJECT_BINARY_DIR}/stage
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_RUNTIME_DLLS:rndrx-dx12> ${PROJECT_BINARY_DIR}/src/dx12
+    # When debugging, the working directory is set to the project dir, not the
+    # executable dir, so we need to put the ddls there too for them to be found.
+    # COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_RUNTIME_DLLS:rndrx-dx12> ${PROJECT_BINARY_DIR}
+    COMMAND_EXPAND_LISTS)
 
 # if(MSVC)
 #     add_custom_command(
