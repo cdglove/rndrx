@@ -69,33 +69,9 @@ VKAPI_ATTR vk::Bool32 VKAPI_CALL vulkan_validation_callback(
   return VK_FALSE;
 }
 
-class ShaderLoader : rndrx::noncopyable {
- public:
-  ShaderLoader(rndrx::vulkan::Device& device, rndrx::vulkan::ShaderCache& target_cache)
-      : device_(device)
-      , cache_(target_cache) {
-  }
-
-  void load(std::string_view shader) {
-    std::filesystem::path p("assets/shaders");
-    p /= shader;
-    p.concat(".spv");
-    auto filesize = std::filesystem::file_size(p);
-    std::ifstream instream(p, std::ios::binary);
-    buffer_.resize(filesize / sizeof(std::uint32_t));
-    instream.read(reinterpret_cast<char*>(buffer_.data()), filesize);
-    cache_.add(device_, shader, buffer_);
-  }
-
- private:
-  std::vector<std::uint32_t> buffer_;
-  rndrx::vulkan::Device& device_;
-  rndrx::vulkan::ShaderCache& cache_;
-};
-
 rndrx::vulkan::ShaderCache load_shaders(rndrx::vulkan::Device& device) {
   rndrx::vulkan::ShaderCache cache;
-  ShaderLoader loader(device, cache);
+  rndrx::vulkan::ShaderLoader loader(device, cache);
   loader.load("fullscreen_quad.vsmain");
   loader.load("fullscreen_quad.copyimageopaque");
   loader.load("fullscreen_quad.blendimageinv");
@@ -154,6 +130,11 @@ class SubmissionContext : noncopyable {
   };
 
   void begin_pass(RenderContext const& rc) {
+    vk::Viewport viewport = rc.full_viewport();
+    command_buffer().setViewport(0, 1, &viewport);
+    auto full_extent = rc.extents();
+    command_buffer().setScissor(0, 1, &full_extent);
+
     vk::ClearValue clear_value;
     clear_value.color.setFloat32({0, 1, 1, 0});
     vk::RenderingAttachmentInfo colour_info;
@@ -168,9 +149,9 @@ class SubmissionContext : noncopyable {
     rendering_info //
         .setLayerCount(1)
         .setViewMask(0)
-        .setColorAttachmentCount(1)
-        .setPColorAttachments(&colour_info)
+        .setColorAttachments(colour_info)
         .setRenderArea(rc.extents());
+
     command_buffer().beginRendering(rendering_info);
   }
 
@@ -218,9 +199,9 @@ class SubmissionContext : noncopyable {
 
   void create_sync_objects(Device const& device) {
     vk::SemaphoreCreateInfo semaphore_create_info;
-    submit_semaphore_ = vk::raii::Semaphore(device.vk(), semaphore_create_info);
+    submit_semaphore_ = device.vk().createSemaphore(semaphore_create_info);
     vk::FenceCreateInfo fence_create_info(vk::FenceCreateFlagBits::eSignaled);
-    submit_fence_ = vk::raii::Fence(device.vk(), fence_create_info);
+    submit_fence_ = device.vk().createFence(fence_create_info);
   }
 
   Device const& device_;
@@ -254,12 +235,10 @@ class FinalCompositeRenderPass : rndrx::noncopyable {
         .setDescriptorType(vk::DescriptorType::eCombinedImageSampler)
         .setStageFlags(vk::ShaderStageFlagBits::eFragment)
         .setDescriptorCount(1)
-        .setPImmutableSamplers(&*sampler_);
+        .setImmutableSamplers(*sampler_);
 
     vk::DescriptorSetLayoutCreateInfo descriptor_set_layout_create_info;
-    descriptor_set_layout_create_info //
-        .setBindingCount(1)
-        .setPBindings(&sampler_binding);
+    descriptor_set_layout_create_info.setBindings(sampler_binding);
 
     fs_layout_ = device.vk().createDescriptorSetLayout(
         descriptor_set_layout_create_info);
@@ -278,19 +257,15 @@ class FinalCompositeRenderPass : rndrx::noncopyable {
     vk::ShaderModule vertex_shader = *sc.get("fullscreen_quad.vsmain").module;
     vk::ShaderModule fragment_shader = *sc.get("fullscreen_quad.blendimage").module;
 
-    std::array<vk::PipelineShaderStageCreateInfo, 2> stage_info = {
-        vk::PipelineShaderStageCreateInfo(
-            {},
-            vk::ShaderStageFlagBits::eVertex,
-            vertex_shader,
-            "main",
-            nullptr),
-        vk::PipelineShaderStageCreateInfo(
-            {},
-            vk::ShaderStageFlagBits::eFragment,
-            fragment_shader,
-            "main",
-            nullptr)};
+    std::array<vk::PipelineShaderStageCreateInfo, 2> stage_info;
+    stage_info[0] //
+        .setStage(vk::ShaderStageFlagBits::eVertex)
+        .setModule(*sc.get("fullscreen_quad.vsmain").module)
+        .setPName("main");
+    stage_info[1] //
+        .setStage(vk::ShaderStageFlagBits::eFragment)
+        .setModule(*sc.get("fullscreen_quad.blendimage").module)
+        .setPName("main");
 
     std::array<vk::DynamicState, 2> dynamic_states = {
         vk::DynamicState::eViewport,
@@ -314,7 +289,7 @@ class FinalCompositeRenderPass : rndrx::noncopyable {
     vk::PipelineRasterizationStateCreateInfo rasterization_state_create_info;
     rasterization_state_create_info //
         .setPolygonMode(vk::PolygonMode::eFill)
-        .setFrontFace(vk::FrontFace::eCounterClockwise)
+        .setFrontFace(vk::FrontFace::eClockwise)
         .setLineWidth(1.f);
 
     vk::GraphicsPipelineCreateInfo create_info;
@@ -394,8 +369,7 @@ class ImGuiRenderPass : rndrx::noncopyable {
         .setRenderPass(*render_pass_)
         .setFramebuffer(*framebuffer_)
         .setRenderArea(window_.extents())
-        .setClearValueCount(1)
-        .setPClearValues(&clear_value);
+        .setClearValues(clear_value);
     command_buffer.beginRenderPass(begin_pass, vk::SubpassContents::eInline);
     ImGui_ImplVulkan_RenderDrawData(draw_data, command_buffer);
     command_buffer.endRenderPass();
@@ -470,32 +444,33 @@ class ImGuiRenderPass : rndrx::noncopyable {
     image_ = device.vk().createImage(image_create_info);
     auto image_mem_reqs = image_.getMemoryRequirements();
 
-    vk::MemoryAllocateInfo alloc_info(
-        image_mem_reqs.size,
-        device.find_memory_type(
+    vk::MemoryAllocateInfo alloc_info;
+    alloc_info //
+        .setAllocationSize(image_mem_reqs.size)
+        .setMemoryTypeIndex(device.find_memory_type(
             image_mem_reqs.memoryTypeBits,
             vk::MemoryPropertyFlagBits::eDeviceLocal));
+
     image_memory_ = device.vk().allocateMemory(alloc_info);
     image_.bindMemory(*image_memory_, 0);
 
-    vk::ImageViewCreateInfo image_view_create_info(
-        {},
-        *image_,
-        vk::ImageViewType::e2D,
-        vk::Format::eR8G8B8A8Unorm,
-        {},
-        vk::ImageSubresourceRange(vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1));
+    vk::ImageViewCreateInfo image_view_create_info;
+    image_view_create_info //
+        .setImage(*image_)
+        .setViewType(vk::ImageViewType::e2D)
+        .setFormat(vk::Format::eR8G8B8A8Unorm)
+        .setSubresourceRange(
+            vk::ImageSubresourceRange(vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1));
 
     image_view_ = device.vk().createImageView(image_view_create_info);
 
-    vk::FramebufferCreateInfo framebuffer_create_info(
-        {},
-        *render_pass_,
-        1,
-        &*image_view_,
-        window.width(),
-        window.height(),
-        1);
+    vk::FramebufferCreateInfo framebuffer_create_info;
+    framebuffer_create_info //
+        .setRenderPass(*render_pass_)
+        .setAttachments(*image_view_)
+        .setWidth(window.width())
+        .setHeight(window.height())
+        .setLayers(1);
 
     framebuffer_ = device.vk().createFramebuffer(framebuffer_create_info);
   }
@@ -552,11 +527,10 @@ class FinalCompositeRenderPass::RenderContext : rndrx::noncopyable {
       FinalCompositeRenderPass const& pass,
       rndrx::vulkan::RenderContext& rc,
       rndrx::vulkan::SubmissionContext& sc) {
+    auto&& cb = sc.command_buffer();
     sc.begin_pass(rc);
-    sc.command_buffer().bindPipeline(
-        vk::PipelineBindPoint::eGraphics,
-        *pass.copy_image_pipeline_);
-    sc.command_buffer().bindDescriptorSets(
+    cb.bindPipeline(vk::PipelineBindPoint::eGraphics, *pass.copy_image_pipeline_);
+    cb.bindDescriptorSets(
         vk::PipelineBindPoint::eGraphics,
         *pass.pipeline_layout_,
         0,
@@ -564,10 +538,6 @@ class FinalCompositeRenderPass::RenderContext : rndrx::noncopyable {
         &*descriptor_set_,
         0,
         nullptr);
-    vk::Viewport viewport = rc.full_viewport();
-    sc.command_buffer().setViewport(0, 1, &viewport);
-    auto full_extent = rc.extents();
-    sc.command_buffer().setScissor(0, 1, &full_extent);
     sc.command_buffer().draw(3, 1, 0, 0);
     sc.end_pass();
   }
@@ -674,18 +644,19 @@ bool rndrx::vulkan::Application::run() {
 
     // ImGui::ShowDemoWindow();
     if(ImGui::Begin("Adapter Info")) {
-      auto physical_device = physical_devices()[selected_device_idx_];
-      auto selected_properties = physical_device.getProperties();
+      auto const& selected = selected_device();
+      auto selected_properties = selected.getProperties();
       if(ImGui::BeginCombo("##name", selected_properties.deviceName)) {
-        for(std::size_t i = 0; i < physical_devices().size(); ++i) {
-          physical_device = physical_devices()[i];
-          auto item_properties = physical_devices()[i].getProperties();
-          if(ImGui::Selectable(item_properties.deviceName, selected_device_idx_ == i)) {
-            if(selected_device_idx_ != i) {
-              select_device(i);
+        for(auto&& candidate : physical_devices()) {
+          auto candidate_properties = candidate.getProperties();
+          if(ImGui::Selectable(
+                 candidate_properties.deviceName,
+                 *candidate == *selected)) {
+            if(*candidate != *selected) {
+              select_device(candidate);
               LOG(Info) << "Adapter switch from '"
                         << selected_properties.deviceName << "' to '"
-                        << item_properties.deviceName << "' detected.\n";
+                        << candidate_properties.deviceName << "' detected.\n";
               device.vk().waitIdle();
               //  Return true unwinds the stack, cleaning everything up, and
               //  then calls run again.
@@ -761,11 +732,21 @@ bool rndrx::vulkan::Application::run() {
   return false;
 }
 
+void choose_graphics_device(rndrx::vulkan::Application& app) {
+  auto devices = app.physical_devices();
+  for(auto&& device : app.physical_devices()) {
+    auto properties = device.getProperties();
+    if(properties.deviceType == vk::PhysicalDeviceType::eDiscreteGpu) {
+      app.select_device(device);
+    }
+  }
+}
+
 int main(int, char**) {
   Glfw glfw;
   rndrx::vulkan::Window window;
   rndrx::vulkan::Application app(window);
-  app.select_device(1);
+  choose_graphics_device(app);
 
   try {
     while(app.run())

@@ -68,6 +68,8 @@ class Device : noncopyable {
 
  private:
   void create_device(Application const& app) {
+    physical_device_ = *app.selected_device();
+
     float priority = 1.f;
     gfx_queue_idx_ = app.find_graphics_queue();
     vk::DeviceQueueCreateInfo queue_create_info({}, gfx_queue_idx_, 1, &priority);
@@ -80,8 +82,8 @@ class Device : noncopyable {
             {{}, queue_create_info, {}, required_extensions, nullptr},
             {},
             vulkan_13_features};
-    physical_device_ = *app.selected_device();
-    device_ = vk::raii::Device(app.selected_device(), create_info.get());
+
+    device_ = app.selected_device().createDevice(create_info.get());
     graphics_queue_ = device_.getQueue(gfx_queue_idx_, 0);
   }
 

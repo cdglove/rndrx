@@ -16,6 +16,7 @@
 #pragma once
 
 #include <spirv_reflect.h>
+#include <fstream>
 #include <span>
 #include <string_view>
 #include <unordered_map>
@@ -31,7 +32,7 @@
 namespace rndrx::vulkan {
 class ShaderCache : noncopyable {
  public:
-   struct CachedShader {
+  struct CachedShader {
     vk::raii::ShaderModule module;
     vk::raii::DescriptorSetLayout descriptor_set_layout;
   };
@@ -71,16 +72,39 @@ class ShaderCache : noncopyable {
         descriptor_set_create_info);
 
     vk::ShaderModuleCreateInfo module_create_info({}, code.size_bytes(), code.data());
-    auto module = vk::raii::ShaderModule(device.vk(), module_create_info);
+    auto module = device.vk().createShaderModule(module_create_info);
     auto node = shader_cache_.insert(
-        std::make_pair(key, CachedShader{std::move(module), std::move(layout)}));      
+        std::make_pair(key, CachedShader{std::move(module), std::move(layout)}));
     return node.first->second;
   }
 
  private:
-
   std::hash<std::string_view> hasher_;
   std::unordered_map<std::uint64_t, CachedShader> shader_cache_;
+};
+
+class ShaderLoader : rndrx::noncopyable {
+ public:
+  ShaderLoader(rndrx::vulkan::Device& device, rndrx::vulkan::ShaderCache& target_cache)
+      : device_(device)
+      , cache_(target_cache) {
+  }
+
+  void load(std::string_view shader) {
+    std::filesystem::path p("assets/shaders");
+    p /= shader;
+    p.concat(".spv");
+    auto filesize = std::filesystem::file_size(p);
+    std::ifstream instream(p, std::ios::binary);
+    buffer_.resize(filesize / sizeof(std::uint32_t));
+    instream.read(reinterpret_cast<char*>(buffer_.data()), filesize);
+    cache_.add(device_, shader, buffer_);
+  }
+
+ private:
+  std::vector<std::uint32_t> buffer_;
+  rndrx::vulkan::Device& device_;
+  rndrx::vulkan::ShaderCache& cache_;
 };
 
 } // namespace rndrx::vulkan

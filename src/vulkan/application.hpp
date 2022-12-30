@@ -16,9 +16,10 @@
 #pragma once
 
 #include <GLFW/glfw3.h>
+#include <array>
+#include <vulkan/vulkan_raii.hpp>
 #include "rndrx/noncopyable.hpp"
 #include "rndrx/throw_exception.hpp"
-#include <array>
 #include "rndrx/to_vector.hpp"
 
 VKAPI_ATTR vk::Bool32 VKAPI_CALL vulkan_validation_callback(
@@ -139,16 +140,23 @@ class Application : noncopyable {
     return surface_;
   }
 
-  vk::raii::PhysicalDevice const& selected_device() const {
-    return physical_devices_[selected_device_idx_];
-  }
-
   std::span<const vk::raii::PhysicalDevice> physical_devices() const {
     return physical_devices_;
   }
 
-  void select_device(int idx) {
-    selected_device_idx_ = idx;
+  vk::raii::PhysicalDevice const& selected_device() const {
+    return physical_devices_[selected_device_idx_];
+  }
+
+  void select_device(vk::raii::PhysicalDevice const& device) {
+    auto item = std::ranges::find_if(
+        physical_devices_,
+        [&device](vk::raii::PhysicalDevice const& candidate) {
+          return *candidate == *device;
+        });
+
+    assert(item != physical_devices_.end());
+    selected_device_idx_ = std::distance(physical_devices_.begin(), item);
   }
 
   int selected_device_index() const {
@@ -241,12 +249,12 @@ class Application : noncopyable {
   }
 
   Window& window_;
+  vk::raii::Instance instance_ = nullptr;
+  int selected_device_idx_;
   vk::raii::Context vk_context_;
-  vk::raii::Instance instance_;
-  vk::raii::DebugUtilsMessengerEXT messenger_;
+  vk::raii::DebugUtilsMessengerEXT messenger_ = nullptr;
+  vk::raii::SurfaceKHR surface_ = nullptr;
   std::vector<vk::raii::PhysicalDevice> physical_devices_;
-  vk::raii::SurfaceKHR surface_;
-  int selected_device_idx_ = 0;
 };
 } // namespace rndrx::vulkan
 
