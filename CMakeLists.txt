@@ -23,7 +23,7 @@ include(FetchContent)
 FetchContent_Declare(
     dear_imgui
     GIT_REPOSITORY https://github.com/ocornut/imgui.git
-    GIT_TAG        3573195
+    GIT_TAG        v1.89.1
 )
 FetchContent_MakeAvailable(dear_imgui)
 

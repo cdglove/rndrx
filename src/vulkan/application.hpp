@@ -246,7 +246,7 @@ class Application : noncopyable {
   vk::raii::DebugUtilsMessengerEXT messenger_;
   std::vector<vk::raii::PhysicalDevice> physical_devices_;
   vk::raii::SurfaceKHR surface_;
-  int selected_device_idx_ = 1;
+  int selected_device_idx_ = 0;
 };
 } // namespace rndrx::vulkan
 

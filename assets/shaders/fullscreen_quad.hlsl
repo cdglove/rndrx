@@ -61,6 +61,6 @@ float4 BlendImage(PSInput input)
 float4 BlendImageInv(PSInput input)
     : SV_TARGET {
     float4 colour = g_texture.Sample(g_sampler, input.uv);
-    return float4(colour.xyz, 1 - colour.a);
+    return float4(colour.xyz, 1.f - colour.a);
 }
 

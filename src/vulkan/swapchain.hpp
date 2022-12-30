@@ -264,6 +264,7 @@ class Swapchain : noncopyable {
             actual_extent.width,
             capabilities_.minImageExtent.width,
             capabilities_.maxImageExtent.width);
+            
         actual_extent.height = std::clamp(
             actual_extent.height,
             capabilities_.minImageExtent.height,

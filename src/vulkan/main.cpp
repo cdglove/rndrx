@@ -247,19 +247,28 @@ class FinalCompositeRenderPass : rndrx::noncopyable {
   void create_pipeline_layout(rndrx::vulkan::Device const& device) {
     vk::SamplerCreateInfo sampler_create_info;
     sampler_ = device.vk().createSampler(sampler_create_info);
-    vk::DescriptorSetLayoutBinding sampler_binding(
-        0,
-        vk::DescriptorType::eCombinedImageSampler,
-        1,
-        vk::ShaderStageFlagBits::eFragment,
-        &*sampler_);
-    vk::DescriptorSetLayoutCreateInfo descriptor_set_layout_create_info(
-        {},
-        1,
-        &sampler_binding);
+
+    vk::DescriptorSetLayoutBinding sampler_binding;
+    sampler_binding //
+        .setBinding(0)
+        .setDescriptorType(vk::DescriptorType::eCombinedImageSampler)
+        .setStageFlags(vk::ShaderStageFlagBits::eFragment)
+        .setDescriptorCount(1)
+        .setPImmutableSamplers(&*sampler_);
+
+    vk::DescriptorSetLayoutCreateInfo descriptor_set_layout_create_info;
+    descriptor_set_layout_create_info //
+        .setBindingCount(1)
+        .setPBindings(&sampler_binding);
+
     fs_layout_ = device.vk().createDescriptorSetLayout(
         descriptor_set_layout_create_info);
-    vk::PipelineLayoutCreateInfo layout_create_info({}, 1, &*fs_layout_);
+
+    vk::PipelineLayoutCreateInfo layout_create_info;
+    layout_create_info //
+        .setSetLayoutCount(1)
+        .setPSetLayouts(&*fs_layout_);
+
     pipeline_layout_ = device.vk().createPipelineLayout(layout_create_info);
   }
 
@@ -267,7 +276,7 @@ class FinalCompositeRenderPass : rndrx::noncopyable {
       rndrx::vulkan::Device const& device,
       rndrx::vulkan::ShaderCache const& sc) {
     vk::ShaderModule vertex_shader = *sc.get("fullscreen_quad.vsmain").module;
-    vk::ShaderModule fragment_shader = *sc.get("fullscreen_quad.blendimageinv").module;
+    vk::ShaderModule fragment_shader = *sc.get("fullscreen_quad.blendimage").module;
 
     std::array<vk::PipelineShaderStageCreateInfo, 2> stage_info = {
         vk::PipelineShaderStageCreateInfo(
@@ -338,6 +347,7 @@ class ImGuiRenderPass : rndrx::noncopyable {
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
     ImGui::StyleColorsDark();
+    ImGui::GetStyle().Alpha = 0.9f;
 
     create_descriptor_pool(device);
     create_render_pass(device);
@@ -375,16 +385,17 @@ class ImGuiRenderPass : rndrx::noncopyable {
     ImGui::Render();
     ImDrawData* draw_data = ImGui::GetDrawData();
     vk::CommandBuffer command_buffer = sc.command_buffer();
-    rndrx::vulkan::RenderContext rc;
-    rc.set_targets(window_.extents(), *image_view_);
+
     vk::ClearValue clear_value;
-    clear_value.color.setFloat32({0, 0, 0, 1});
-    vk::RenderPassBeginInfo begin_pass(
-        *render_pass_,
-        *framebuffer_,
-        window_.extents(),
-        1,
-        &clear_value);
+    clear_value.color.setFloat32({0, 0, 0, 0});
+
+    vk::RenderPassBeginInfo begin_pass;
+    begin_pass //
+        .setRenderPass(*render_pass_)
+        .setFramebuffer(*framebuffer_)
+        .setRenderArea(window_.extents())
+        .setClearValueCount(1)
+        .setPClearValues(&clear_value);
     command_buffer.beginRenderPass(begin_pass, vk::SubpassContents::eInline);
     ImGui_ImplVulkan_RenderDrawData(draw_data, command_buffer);
     command_buffer.endRenderPass();
@@ -490,33 +501,30 @@ class ImGuiRenderPass : rndrx::noncopyable {
   }
 
   void create_render_pass(rndrx::vulkan::Device const& device) {
-    vk::AttachmentDescription attachment_desc(
-        {},
-        vk::Format::eR8G8B8A8Unorm,
-        vk::SampleCountFlagBits::e1,
-        vk::AttachmentLoadOp::eClear,
-        vk::AttachmentStoreOp::eStore,
-        vk::AttachmentLoadOp::eDontCare,
-        vk::AttachmentStoreOp::eDontCare,
-        vk::ImageLayout::eUndefined,
-        vk::ImageLayout::eReadOnlyOptimal);
-    vk::AttachmentReference attachment_ref(0, vk::ImageLayout::eColorAttachmentOptimal);
-    vk::SubpassDependency subpass_dep(
-        VK_SUBPASS_EXTERNAL,
-        0,
-        vk::PipelineStageFlagBits::eColorAttachmentOutput,
-        vk::PipelineStageFlagBits::eColorAttachmentOutput,
-        vk::AccessFlagBits::eNone,
-        vk::AccessFlagBits::eColorAttachmentWrite);
-    vk::SubpassDescription subpass(
-        {},
-        vk::PipelineBindPoint::eGraphics,
-        0,
-        nullptr,
-        1,
-        &attachment_ref);
-    vk::RenderPassCreateInfo
-        create_info({}, 1, &attachment_desc, 1, &subpass, 1, &subpass_dep);
+    vk::AttachmentDescription attachment_desc[1];
+    attachment_desc[0] //
+        .setFormat(vk::Format::eR8G8B8A8Unorm)
+        .setSamples(vk::SampleCountFlagBits::e1)
+        .setLoadOp(vk::AttachmentLoadOp::eClear)
+        .setStoreOp(vk::AttachmentStoreOp::eStore)
+        .setInitialLayout(vk::ImageLayout::eUndefined)
+        .setFinalLayout(vk::ImageLayout::eReadOnlyOptimal);
+
+    vk::AttachmentReference attachment_ref[1];
+    attachment_ref[0] //
+        .setAttachment(0)
+        .setLayout(vk::ImageLayout::eColorAttachmentOptimal);
+
+    vk::SubpassDescription subpass[1];
+    subpass[0] //
+        .setPipelineBindPoint(vk::PipelineBindPoint::eGraphics)
+        .setColorAttachments(attachment_ref);
+
+    vk::RenderPassCreateInfo create_info;
+    create_info //
+        .setAttachments(attachment_desc)
+        .setSubpasses(subpass);
+
     render_pass_ = device.vk().createRenderPass(create_info);
   }
 
@@ -619,6 +627,13 @@ class Glfw : rndrx::noncopyable {
 };
 
 bool rndrx::vulkan::Application::run() {
+  LOG(Info) << "Compatible adapters:";
+  for(auto&& device : physical_devices()) {
+    auto properties = device.getProperties();
+    LOG(Info) << "    " << properties.deviceName
+              << ((*selected_device() == *device) ? " (selected)" : "");
+  }
+
   Device device(*this);
   Swapchain swapchain(*this, device);
   ImGuiRenderPass imgui(window_, *this, device, swapchain);
@@ -634,12 +649,28 @@ bool rndrx::vulkan::Application::run() {
 
   imgui.initialise_font(device, submission_contexts[0]);
 
-  // device.vk().waitIdle();
   std::uint32_t frame_id = 0;
   while(!glfwWindowShouldClose(window_.glfw())) {
     glfwPollEvents();
 
     imgui.update();
+
+    // if((frame_id+1) % 1000 == 0) {
+    //   auto physical_device = physical_devices()[selected_device_idx_];
+    //   auto selected_properties = physical_device.getProperties();
+    //   selected_device_idx_ = (selected_device_idx_ + 1) %
+    //   physical_devices().size(); physical_device =
+    //   physical_devices()[selected_device_idx_]; auto item_properties =
+    //   physical_devices()[selected_device_idx_].getProperties();
+    //   select_device(selected_device_idx_);
+    //   LOG(Info) << "Auto adapter switch from '" <<
+    //   selected_properties.deviceName
+    //             << "' to '" << item_properties.deviceName << "' detected.";
+    //   device.vk().waitIdle();
+    //   //  Return true unwinds the stack, cleaning everything up, and
+    //   //  then calls run again.
+    //   return true;
+    // }
 
     // ImGui::ShowDemoWindow();
     if(ImGui::Begin("Adapter Info")) {
@@ -652,8 +683,9 @@ bool rndrx::vulkan::Application::run() {
           if(ImGui::Selectable(item_properties.deviceName, selected_device_idx_ == i)) {
             if(selected_device_idx_ != i) {
               select_device(i);
-              LOG(Info) << "Adapter switch from '" << selected_properties.deviceName
-                        << "' to '" << item_properties.deviceName << "' detected.\n";
+              LOG(Info) << "Adapter switch from '"
+                        << selected_properties.deviceName << "' to '"
+                        << item_properties.deviceName << "' detected.\n";
               device.vk().waitIdle();
               //  Return true unwinds the stack, cleaning everything up, and
               //  then calls run again.
@@ -733,6 +765,7 @@ int main(int, char**) {
   Glfw glfw;
   rndrx::vulkan::Window window;
   rndrx::vulkan::Application app(window);
+  app.select_device(1);
 
   try {
     while(app.run())
