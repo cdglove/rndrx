@@ -84,9 +84,13 @@ rndrx::vulkan::ShaderCache load_shaders(rndrx::vulkan::Device& device) {
 namespace rndrx::vulkan {
 class RenderContext : noncopyable {
  public:
-  void set_targets(vk::Rect2D extents, vk::ImageView colour_target) {
+  void set_targets(
+      vk::Rect2D extents,
+      vk::ImageView colour_target,
+      vk::Framebuffer framebuffer) {
     target_extents_ = extents;
     colour_target_ = colour_target;
+    framebuffer_ = framebuffer;
   }
 
   vk::Rect2D extents() const {
@@ -107,9 +111,14 @@ class RenderContext : noncopyable {
     return colour_target_;
   }
 
+  vk::Framebuffer framebuffer() const {
+    return framebuffer_;
+  }
+
  private:
   vk::Rect2D target_extents_;
   vk::ImageView colour_target_;
+  vk::Framebuffer framebuffer_;
 };
 
 class SubmissionContext : noncopyable {
@@ -220,11 +229,40 @@ class FinalCompositeRenderPass : rndrx::noncopyable {
       rndrx::vulkan::Device const& device,
       rndrx::vulkan::ShaderCache const& sc)
       : copy_image_pipeline_(nullptr) {
+    create_render_pass(device);
     create_pipeline_layout(device);
     create_pipeline(device, sc);
   }
 
  private:
+  void create_render_pass(rndrx::vulkan::Device const& device) {
+    vk::AttachmentDescription attachment_desc[1];
+    attachment_desc[0] //
+        .setFormat(vk::Format::eB8G8R8A8Unorm)
+        .setSamples(vk::SampleCountFlagBits::e1)
+        .setLoadOp(vk::AttachmentLoadOp::eClear)
+        .setStoreOp(vk::AttachmentStoreOp::eStore)
+        .setInitialLayout(vk::ImageLayout::eUndefined)
+        .setFinalLayout(vk::ImageLayout::ePresentSrcKHR);
+
+    vk::AttachmentReference attachment_ref[1];
+    attachment_ref[0] //
+        .setAttachment(0)
+        .setLayout(vk::ImageLayout::eColorAttachmentOptimal);
+
+    vk::SubpassDescription subpass[1];
+    subpass[0] //
+        .setPipelineBindPoint(vk::PipelineBindPoint::eGraphics)
+        .setColorAttachments(attachment_ref);
+
+    vk::RenderPassCreateInfo create_info;
+    create_info //
+        .setAttachments(attachment_desc)
+        .setSubpasses(subpass);
+
+    render_pass_ = device.vk().createRenderPass(create_info);
+  }
+
   void create_pipeline_layout(rndrx::vulkan::Device const& device) {
     vk::SamplerCreateInfo sampler_create_info;
     sampler_ = device.vk().createSampler(sampler_create_info);
@@ -244,9 +282,7 @@ class FinalCompositeRenderPass : rndrx::noncopyable {
         descriptor_set_layout_create_info);
 
     vk::PipelineLayoutCreateInfo layout_create_info;
-    layout_create_info //
-        .setSetLayoutCount(1)
-        .setPSetLayouts(&*fs_layout_);
+    layout_create_info.setSetLayouts(*fs_layout_);
 
     pipeline_layout_ = device.vk().createPipelineLayout(layout_create_info);
   }
@@ -254,9 +290,6 @@ class FinalCompositeRenderPass : rndrx::noncopyable {
   void create_pipeline(
       rndrx::vulkan::Device const& device,
       rndrx::vulkan::ShaderCache const& sc) {
-    vk::ShaderModule vertex_shader = *sc.get("fullscreen_quad.vsmain").module;
-    vk::ShaderModule fragment_shader = *sc.get("fullscreen_quad.blendimage").module;
-
     std::array<vk::PipelineShaderStageCreateInfo, 2> stage_info;
     stage_info[0] //
         .setStage(vk::ShaderStageFlagBits::eVertex)
@@ -292,15 +325,35 @@ class FinalCompositeRenderPass : rndrx::noncopyable {
         .setFrontFace(vk::FrontFace::eClockwise)
         .setLineWidth(1.f);
 
+    vk::PipelineColorBlendAttachmentState colour_blend_attachment_state;
+    colour_blend_attachment_state //
+        .setBlendEnable(VK_TRUE)
+        .setColorWriteMask(
+            vk::ColorComponentFlagBits::eR | vk::ColorComponentFlagBits::eG |
+            vk::ColorComponentFlagBits::eB | vk::ColorComponentFlagBits::eA)
+        .setSrcColorBlendFactor(vk::BlendFactor::eSrcAlpha)
+        .setDstColorBlendFactor(vk::BlendFactor::eOneMinusSrcAlpha)
+        .setColorBlendOp(vk::BlendOp::eAdd)
+        .setSrcAlphaBlendFactor(vk::BlendFactor::eOne)
+        .setDstAlphaBlendFactor(vk::BlendFactor::eZero)
+        .setAlphaBlendOp(vk::BlendOp::eAdd);
+
+    vk::PipelineColorBlendStateCreateInfo colour_blend_state_create_info;
+    colour_blend_state_create_info //
+        .setLogicOpEnable(VK_FALSE)
+        .setAttachments(colour_blend_attachment_state);
+
     vk::GraphicsPipelineCreateInfo create_info;
     create_info //
         .setStages(stage_info)
         .setPVertexInputState(&vertex_input_state_create_info)
         .setPInputAssemblyState(&input_assembly_state_create_info)
         .setPRasterizationState(&rasterization_state_create_info)
+        .setPColorBlendState(&colour_blend_state_create_info)
         .setPViewportState(&viewport_state_create_info)
         .setPDynamicState(&dynamic_state_create_info)
-        .setLayout(*pipeline_layout_);
+        .setLayout(*pipeline_layout_)
+        .setRenderPass(*render_pass_);
 
     copy_image_pipeline_ = device.vk().createGraphicsPipeline(nullptr, create_info);
   }
@@ -308,7 +361,8 @@ class FinalCompositeRenderPass : rndrx::noncopyable {
   vk::raii::Sampler sampler_ = nullptr;
   vk::raii::DescriptorSetLayout fs_layout_ = nullptr;
   vk::raii::PipelineLayout pipeline_layout_ = nullptr;
-  vk::raii::Pipeline copy_image_pipeline_;
+  vk::raii::RenderPass render_pass_ = nullptr;
+  vk::raii::Pipeline copy_image_pipeline_ = nullptr;
 };
 
 class ImGuiRenderPass : rndrx::noncopyable {
@@ -392,8 +446,8 @@ class ImGuiRenderPass : rndrx::noncopyable {
     ImGui_ImplVulkan_DestroyFontUploadObjects();
   }
 
-  rndrx::vulkan::Image target() const {
-    return {*image_, *image_view_};
+  rndrx::vulkan::RenderTarget target() const {
+    return {*image_, *image_view_, *framebuffer_};
   }
 
  private:
@@ -490,8 +544,8 @@ class ImGuiRenderPass : rndrx::noncopyable {
         .setAttachment(0)
         .setLayout(vk::ImageLayout::eColorAttachmentOptimal);
 
-    vk::SubpassDescription subpass[1];
-    subpass[0] //
+    vk::SubpassDescription subpass;
+    subpass //
         .setPipelineBindPoint(vk::PipelineBindPoint::eGraphics)
         .setColorAttachments(attachment_ref);
 
@@ -528,7 +582,20 @@ class FinalCompositeRenderPass::RenderContext : rndrx::noncopyable {
       rndrx::vulkan::RenderContext& rc,
       rndrx::vulkan::SubmissionContext& sc) {
     auto&& cb = sc.command_buffer();
-    sc.begin_pass(rc);
+
+    vk::ClearValue clear_value;
+    clear_value.color.setFloat32({0, 1, 1, 0});
+
+    vk::RenderPassBeginInfo begin_pass;
+    begin_pass //
+        .setRenderPass(*pass.render_pass_)
+        .setFramebuffer(rc.framebuffer())
+        .setRenderArea(rc.extents())
+        .setClearValues(clear_value);
+
+    sc.command_buffer().beginRenderPass(begin_pass, vk::SubpassContents::eInline);
+
+    // sc.begin_pass(rc);
     cb.bindPipeline(vk::PipelineBindPoint::eGraphics, *pass.copy_image_pipeline_);
     cb.bindDescriptorSets(
         vk::PipelineBindPoint::eGraphics,
@@ -539,7 +606,8 @@ class FinalCompositeRenderPass::RenderContext : rndrx::noncopyable {
         0,
         nullptr);
     sc.command_buffer().draw(3, 1, 0, 0);
-    sc.end_pass();
+    sc.command_buffer().endRenderPass();
+    // sc.end_pass();
   }
 
  private:
@@ -625,23 +693,6 @@ bool rndrx::vulkan::Application::run() {
 
     imgui.update();
 
-    // if((frame_id+1) % 1000 == 0) {
-    //   auto physical_device = physical_devices()[selected_device_idx_];
-    //   auto selected_properties = physical_device.getProperties();
-    //   selected_device_idx_ = (selected_device_idx_ + 1) %
-    //   physical_devices().size(); physical_device =
-    //   physical_devices()[selected_device_idx_]; auto item_properties =
-    //   physical_devices()[selected_device_idx_].getProperties();
-    //   select_device(selected_device_idx_);
-    //   LOG(Info) << "Auto adapter switch from '" <<
-    //   selected_properties.deviceName
-    //             << "' to '" << item_properties.deviceName << "' detected.";
-    //   device.vk().waitIdle();
-    //   //  Return true unwinds the stack, cleaning everything up, and
-    //   //  then calls run again.
-    //   return true;
-    // }
-
     // ImGui::ShowDemoWindow();
     if(ImGui::Begin("Adapter Info")) {
       auto const& selected = selected_device();
@@ -674,53 +725,56 @@ bool rndrx::vulkan::Application::run() {
     imgui.render(sc);
 
     PresentContext present_context = swapchain.create_present_context(frame_id);
-    Image final_image = present_context.acquire_next_image();
+    RenderTarget final_image = present_context.acquire_next_image();
     vk::ImageMemoryBarrier swap_chain_image_transition;
-    swap_chain_image_transition //
-        .setSrcQueueFamilyIndex(device.graphics_queue_family_idx())
-        .setDstQueueFamilyIndex(device.graphics_queue_family_idx())
-        .setImage(final_image.image())
-        .setSubresourceRange(
-            vk::ImageSubresourceRange(vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1));
+    // swap_chain_image_transition //
+    //     .setSrcQueueFamilyIndex(device.graphics_queue_family_idx())
+    //     .setDstQueueFamilyIndex(device.graphics_queue_family_idx())
+    //     .setImage(final_image.image())
+    //     .setSubresourceRange(
+    //         vk::ImageSubresourceRange(vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1));
 
-    swap_chain_image_transition //
-        .setSrcAccessMask(vk::AccessFlagBits::eColorAttachmentRead)
-        .setDstAccessMask(vk::AccessFlagBits::eColorAttachmentWrite)
-        .setOldLayout(vk::ImageLayout::eUndefined)
-        .setNewLayout(vk::ImageLayout::eColorAttachmentOptimal);
+    // swap_chain_image_transition //
+    //     .setSrcAccessMask(vk::AccessFlagBits::eColorAttachmentRead)
+    //     .setDstAccessMask(vk::AccessFlagBits::eColorAttachmentWrite)
+    //     .setOldLayout(vk::ImageLayout::eUndefined)
+    //     .setNewLayout(vk::ImageLayout::eColorAttachmentOptimal);
 
-    sc.command_buffer().pipelineBarrier(
-        vk::PipelineStageFlagBits::eAllGraphics,
-        vk::PipelineStageFlagBits::eAllGraphics,
-        vk::DependencyFlagBits::eByRegion,
-        0,
-        nullptr,
-        0,
-        nullptr,
-        1,
-        &swap_chain_image_transition);
+    // sc.command_buffer().pipelineBarrier(
+    //     vk::PipelineStageFlagBits::eAllGraphics,
+    //     vk::PipelineStageFlagBits::eAllGraphics,
+    //     vk::DependencyFlagBits::eByRegion,
+    //     0,
+    //     nullptr,
+    //     0,
+    //     nullptr,
+    //     1,
+    //     &swap_chain_image_transition);
 
     RenderContext composite_context;
-    composite_context.set_targets(window_.extents(), final_image.view());
+    composite_context.set_targets(
+        window_.extents(),
+        final_image.view(),
+        final_image.framebuffer());
 
     fcrprc.draw(final_composite, composite_context, sc);
 
-    swap_chain_image_transition //
-        .setSrcAccessMask(vk::AccessFlagBits::eColorAttachmentWrite)
-        .setDstAccessMask(vk::AccessFlagBits::eColorAttachmentRead)
-        .setOldLayout(vk::ImageLayout::eColorAttachmentOptimal)
-        .setNewLayout(vk::ImageLayout::ePresentSrcKHR);
+    // swap_chain_image_transition //
+    //     .setSrcAccessMask(vk::AccessFlagBits::eColorAttachmentWrite)
+    //     .setDstAccessMask(vk::AccessFlagBits::eColorAttachmentRead)
+    //     .setOldLayout(vk::ImageLayout::eColorAttachmentOptimal)
+    //     .setNewLayout(vk::ImageLayout::ePresentSrcKHR);
 
-    sc.command_buffer().pipelineBarrier(
-        vk::PipelineStageFlagBits::eAllGraphics,
-        vk::PipelineStageFlagBits::eAllGraphics,
-        vk::DependencyFlagBits::eByRegion,
-        0,
-        nullptr,
-        0,
-        nullptr,
-        1,
-        &swap_chain_image_transition);
+    // sc.command_buffer().pipelineBarrier(
+    //     vk::PipelineStageFlagBits::eAllGraphics,
+    //     vk::PipelineStageFlagBits::eAllGraphics,
+    //     vk::DependencyFlagBits::eByRegion,
+    //     0,
+    //     nullptr,
+    //     0,
+    //     nullptr,
+    //     1,
+    //     &swap_chain_image_transition);
     sc.finish_rendering();
     present_context.present();
 

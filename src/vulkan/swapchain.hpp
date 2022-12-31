@@ -19,7 +19,7 @@
 #include <vulkan/vulkan_handles.hpp>
 #include <vulkan/vulkan_raii.hpp>
 #include <vulkan/vulkan_structs.hpp>
-#include "image.hpp"
+#include "render_target.hpp"
 #include "rndrx/noncopyable.hpp"
 
 namespace rndrx::vulkan {
@@ -30,16 +30,18 @@ class PresentContext : noncopyable {
       vk::raii::SwapchainKHR const& swapchain,
       std::vector<vk::Image> swapchain_images,
       std::vector<vk::raii::ImageView> const& swapchain_image_views,
+      std::vector<vk::raii::Framebuffer> const& swapchain_framebuffers,
       vk::raii::Queue const& present_queue,
       vk::Semaphore image_ready_semaphore)
       : swapchain_(swapchain)
       , swapchain_images_(std::move(swapchain_images))
       , swapchain_image_views_(swapchain_image_views)
+      , swapchain_framebuffers_(swapchain_framebuffers)
       , present_queue_(present_queue)
       , image_ready_semaphore_(image_ready_semaphore) {
   }
 
-  Image acquire_next_image() {
+  RenderTarget acquire_next_image() {
     auto result = swapchain_.acquireNextImage(
         std::numeric_limits<std::uint64_t>::max(),
         image_ready_semaphore_);
@@ -49,17 +51,18 @@ class PresentContext : noncopyable {
 
     image_idx_ = result.second;
 
-    return {swapchain_images_[image_idx_], *swapchain_image_views_[image_idx_]};
+    return {
+        swapchain_images_[image_idx_],
+        *swapchain_image_views_[image_idx_],
+        *swapchain_framebuffers_[image_idx_]};
   }
 
   void present() {
     vk::PresentInfoKHR present_info;
     present_info //
-        .setWaitSemaphoreCount(1)
-        .setPWaitSemaphores(&image_ready_semaphore_)
-        .setSwapchainCount(1)
-        .setPSwapchains(&*swapchain_)
-        .setPImageIndices(&image_idx_);
+        .setWaitSemaphores(image_ready_semaphore_)
+        .setSwapchains(*swapchain_)
+        .setImageIndices(image_idx_);
     auto result = present_queue_.presentKHR(present_info);
     if(result != vk::Result::eSuccess) {
       throw_runtime_error("Failed to handle swapchain present failure");
@@ -70,6 +73,7 @@ class PresentContext : noncopyable {
   vk::raii::SwapchainKHR const& swapchain_;
   std::vector<vk::Image> swapchain_images_;
   std::vector<vk::raii::ImageView> const& swapchain_image_views_;
+  std::vector<vk::raii::Framebuffer> const& swapchain_framebuffers_;
   vk::raii::Queue const& present_queue_;
   vk::Semaphore image_ready_semaphore_;
   std::uint32_t image_idx_ = 0;
@@ -91,6 +95,7 @@ class Swapchain : noncopyable {
         swapchain_,
         swapchain_images_,
         swapchain_image_views_,
+        swapchain_framebuffers_,
         device_.graphics_queue(),
         *image_ready_semaphores_[frame_idx]};
   }
@@ -105,33 +110,30 @@ class Swapchain : noncopyable {
 
  private:
   void create_render_pass(Device const& device, vk::SurfaceFormatKHR surface_format) {
-    vk::AttachmentDescription attachment_desc(
-        {},
-        surface_format.format,
-        vk::SampleCountFlagBits::e1,
-        vk::AttachmentLoadOp::eDontCare,
-        vk::AttachmentStoreOp::eStore,
-        vk::AttachmentLoadOp::eDontCare,
-        vk::AttachmentStoreOp::eDontCare,
-        vk::ImageLayout::eUndefined,
-        vk::ImageLayout::eReadOnlyOptimal);
-    vk::AttachmentReference attachment_ref(0, vk::ImageLayout::eColorAttachmentOptimal);
-    vk::SubpassDependency subpass_dep(
-        VK_SUBPASS_EXTERNAL,
-        0,
-        vk::PipelineStageFlagBits::eColorAttachmentOutput,
-        vk::PipelineStageFlagBits::eColorAttachmentOutput,
-        vk::AccessFlagBits::eNone,
-        vk::AccessFlagBits::eColorAttachmentWrite);
-    vk::SubpassDescription subpass(
-        {},
-        vk::PipelineBindPoint::eGraphics,
-        0,
-        nullptr,
-        1,
-        &attachment_ref);
-    vk::RenderPassCreateInfo
-        create_info({}, 1, &attachment_desc, 1, &subpass, 1, &subpass_dep);
+    vk::AttachmentDescription attachment_desc;
+    attachment_desc //
+        .setFormat(surface_format.format)
+        .setSamples(vk::SampleCountFlagBits::e1)
+        .setLoadOp(vk::AttachmentLoadOp::eDontCare)
+        .setStoreOp(vk::AttachmentStoreOp::eStore)
+        .setInitialLayout(vk::ImageLayout::eUndefined)
+        .setFinalLayout(vk::ImageLayout::eReadOnlyOptimal);
+
+    vk::AttachmentReference attachment_ref[1];
+    attachment_ref[0] //
+        .setAttachment(0)
+        .setLayout(vk::ImageLayout::eColorAttachmentOptimal);
+
+    vk::SubpassDescription subpass[1];
+    subpass[0] //
+        .setPipelineBindPoint(vk::PipelineBindPoint::eGraphics)
+        .setColorAttachments(attachment_ref);
+
+    vk::RenderPassCreateInfo create_info;
+    create_info //
+        .setAttachments(attachment_desc)
+        .setSubpasses(subpass);
+
     composite_render_pass_ = device.vk().createRenderPass(create_info);
   }
 
@@ -144,21 +146,19 @@ class Swapchain : noncopyable {
 
     create_render_pass(device_, surface_format_);
 
-    vk::SwapchainCreateInfoKHR create_info(
-        {},
-        *app.surface(),
-        support.choose_image_count(),
-        surface_format_.format,
-        surface_format_.colorSpace,
-        support.choose_extent(app.window()),
-        1,
-        vk::ImageUsageFlagBits::eColorAttachment,
-        vk::SharingMode::eExclusive,
-        1,
-        &queue_family_idx_,
-        vk::SurfaceTransformFlagBitsKHR::eIdentity,
-        vk::CompositeAlphaFlagBitsKHR::eOpaque,
-        support.choose_present_mode());
+    vk::SwapchainCreateInfoKHR create_info;
+    create_info //
+        .setSurface(*app.surface())
+        .setMinImageCount(support.choose_image_count())
+        .setImageFormat(surface_format_.format)
+        .setImageColorSpace(surface_format_.colorSpace)
+        .setImageExtent(support.choose_extent(app.window()))
+        .setImageArrayLayers(1)
+        .setImageUsage(vk::ImageUsageFlagBits::eColorAttachment)
+        .setImageSharingMode(vk::SharingMode::eExclusive)
+        .setQueueFamilyIndices(queue_family_idx_)
+        .setPresentMode(support.choose_present_mode());
+
     swapchain_ = device.createSwapchainKHR(create_info);
 
     swapchain_images_ = swapchain_.getImages();
@@ -166,36 +166,35 @@ class Swapchain : noncopyable {
         swapchain_images_,
         std::back_inserter(swapchain_image_views_),
         [this, &device](vk::Image img) {
-          vk::ImageViewCreateInfo create_info(
-              {},
-              img,
-              vk::ImageViewType::e2D,
-              surface_format_.format,
-              {},
-              vk::ImageSubresourceRange(vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1));
-          return vk::raii::ImageView(device, create_info);
+          vk::ImageViewCreateInfo create_info;
+          create_info //
+              .setImage(img)
+              .setViewType(vk::ImageViewType::e2D)
+              .setFormat(surface_format_.format)
+              .setSubresourceRange(
+                  vk::ImageSubresourceRange(vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1));
+          return device.createImageView(create_info);
         });
 
     std::ranges::transform(
         swapchain_image_views_,
-        std::back_inserter(framebuffers_),
+        std::back_inserter(swapchain_framebuffers_),
         [&app, &device, this](vk::raii::ImageView const& image_view) {
-          vk::FramebufferCreateInfo create_info(
-              {},
-              *composite_render_pass_,
-              1,
-              &*image_view,
-              app.window().width(),
-              app.window().height(),
-              1);
-          return vk::raii::Framebuffer(device, create_info);
+          vk::FramebufferCreateInfo create_info;
+          create_info //
+              .setRenderPass(*composite_render_pass_)
+              .setAttachments(*image_view)
+              .setWidth(app.window().width())
+              .setHeight(app.window().height())
+              .setLayers(1);
+          return device.createFramebuffer(create_info);
         });
   }
 
   void create_sync_objects() {
     auto create_semaphore_at = [this](int) {
       vk::SemaphoreCreateInfo create_info;
-      return vk::raii::Semaphore(device_.vk(), create_info);
+      return device_.vk().createSemaphore(create_info);
     };
 
     constexpr int kNumFramesInFlight = 2;
@@ -264,7 +263,7 @@ class Swapchain : noncopyable {
             actual_extent.width,
             capabilities_.minImageExtent.width,
             capabilities_.maxImageExtent.width);
-            
+
         actual_extent.height = std::clamp(
             actual_extent.height,
             capabilities_.minImageExtent.height,
@@ -294,7 +293,7 @@ class Swapchain : noncopyable {
   vk::raii::SwapchainKHR swapchain_;
   std::vector<vk::Image> swapchain_images_;
   std::vector<vk::raii::ImageView> swapchain_image_views_;
-  std::vector<vk::raii::Framebuffer> framebuffers_;
+  std::vector<vk::raii::Framebuffer> swapchain_framebuffers_;
   std::vector<vk::raii::Semaphore> image_ready_semaphores_;
   vk::raii::RenderPass composite_render_pass_;
   vk::SurfaceFormatKHR surface_format_;

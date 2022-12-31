@@ -212,6 +212,7 @@ class Application : noncopyable {
       throw_runtime_error("failed to create window surface!");
     }
 
+    // Transfer ownership of the surface
     surface_ = vk::raii::SurfaceKHR(instance_, surface);
   }
 
