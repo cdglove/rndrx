@@ -15,21 +15,17 @@
 #define RNDRX_VULKAN_SHADERCHACHE_HPP_
 #pragma once
 
-#include <spirv_reflect.h>
-#include <fstream>
 #include <span>
 #include <string_view>
 #include <unordered_map>
 #include <vector>
 #include <vulkan/vulkan.hpp>
 #include <vulkan/vulkan_enums.hpp>
-#include <vulkan/vulkan_handles.hpp>
 #include <vulkan/vulkan_raii.hpp>
-#include <vulkan/vulkan_structs.hpp>
-#include "device.hpp"
 #include "rndrx/noncopyable.hpp"
 
 namespace rndrx::vulkan {
+class Device;
 class ShaderCache : noncopyable {
  public:
   struct CachedShader {
@@ -41,42 +37,8 @@ class ShaderCache : noncopyable {
     return shader_cache_.at(hasher_(name));
   }
 
-  CachedShader const& add(
-      Device const& device,
-      std::string_view name,
-      std::span<std::uint32_t> code) {
-    auto key = hasher_(name);
-    SpvReflectShaderModule reflected_module;
-    spvReflectCreateShaderModule(code.size_bytes(), code.data(), &reflected_module);
-
-    std::vector<vk::DescriptorSetLayoutBinding> layout_bindings;
-    for(std::uint32_t i = 0; i < reflected_module.descriptor_binding_count; ++i) {
-      SpvReflectDescriptorBinding& reflected_binding =
-          reflected_module.descriptor_bindings[i];
-      layout_bindings.push_back(vk::DescriptorSetLayoutBinding(
-          i,
-          static_cast<vk::DescriptorType>(reflected_binding.descriptor_type),
-          reflected_binding.count,
-          static_cast<vk::ShaderStageFlags>(
-              reflected_module.entry_points[0].shader_stage),
-          nullptr));
-    }
-    spvReflectDestroyShaderModule(&reflected_module);
-
-    vk::DescriptorSetLayoutCreateInfo descriptor_set_create_info(
-        {},
-        (uint32_t)layout_bindings.size(),
-        layout_bindings.data());
-    auto layout = vk::raii::DescriptorSetLayout(
-        device.vk(),
-        descriptor_set_create_info);
-
-    vk::ShaderModuleCreateInfo module_create_info({}, code.size_bytes(), code.data());
-    auto module = device.vk().createShaderModule(module_create_info);
-    auto node = shader_cache_.insert(
-        std::make_pair(key, CachedShader{std::move(module), std::move(layout)}));
-    return node.first->second;
-  }
+  CachedShader const&
+  add(Device const& device, std::string_view name, std::span<std::uint32_t> code);
 
  private:
   std::hash<std::string_view> hasher_;
@@ -85,27 +47,19 @@ class ShaderCache : noncopyable {
 
 class ShaderLoader : rndrx::noncopyable {
  public:
-  ShaderLoader(rndrx::vulkan::Device& device, rndrx::vulkan::ShaderCache& target_cache)
+  ShaderLoader(Device& device, ShaderCache& target_cache)
       : device_(device)
       , cache_(target_cache) {
   }
 
-  void load(std::string_view shader) {
-    std::filesystem::path p("assets/shaders");
-    p /= shader;
-    p.concat(".spv");
-    auto filesize = std::filesystem::file_size(p);
-    std::ifstream instream(p, std::ios::binary);
-    buffer_.resize(filesize / sizeof(std::uint32_t));
-    instream.read(reinterpret_cast<char*>(buffer_.data()), filesize);
-    cache_.add(device_, shader, buffer_);
-  }
+  void load(std::string_view shader);
 
  private:
   std::vector<std::uint32_t> buffer_;
-  rndrx::vulkan::Device& device_;
-  rndrx::vulkan::ShaderCache& cache_;
+  Device& device_;
+  ShaderCache& cache_;
 };
 
 } // namespace rndrx::vulkan
+
 #endif // RNDRX_VULKAN_SHADERCHACHE_HPP_
