@@ -36,6 +36,9 @@ class CompositeRenderPass : rndrx::noncopyable {
   }
 
   void render(RenderContext& rc, SubmissionContext& sc, std::span<DrawItem> draw_list);
+  vk::raii::RenderPass const& render_pass() {
+    return render_pass_;
+  }
 
  private:
   void create_render_pass(Device const& device, vk::Format present_format);

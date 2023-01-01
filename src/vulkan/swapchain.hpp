@@ -15,8 +15,11 @@
 #define RNDRX_VULKAN_SWAPCHAIN_HPP_
 #pragma once
 
+#include <limits>
 #include <vector>
 #include <vulkan/vulkan.hpp>
+#include <vulkan/vulkan_enums.hpp>
+#include <vulkan/vulkan_handles.hpp>
 #include <vulkan/vulkan_raii.hpp>
 #include "render_target.hpp"
 #include "rndrx/noncopyable.hpp"
@@ -25,61 +28,90 @@ namespace rndrx::vulkan {
 
 class Application;
 class Device;
-class PresentContext : noncopyable {
+class Swapchain;
+
+class PresentationContext {
  public:
-  PresentContext(
-      vk::raii::SwapchainKHR const& swapchain,
-      std::vector<vk::Image> swapchain_images,
-      std::vector<vk::raii::ImageView> const& swapchain_image_views,
-      std::vector<vk::raii::Framebuffer> const& swapchain_framebuffers,
-      vk::raii::Queue const& present_queue,
-      vk::Semaphore image_ready_semaphore)
-      : swapchain_(swapchain)
-      , swapchain_images_(std::move(swapchain_images))
-      , swapchain_image_views_(swapchain_image_views)
-      , swapchain_framebuffers_(swapchain_framebuffers)
-      , present_queue_(present_queue)
-      , image_ready_semaphore_(image_ready_semaphore) {
+  RenderTarget const& target() const {
+    return rt_;
   }
 
-  RenderTarget acquire_next_image();
-  void present();
+ private:
+  friend class PresentationQueue;
+
+  PresentationContext(
+      vk::Image image,
+      vk::ImageView image_view,
+      vk::Framebuffer framebuffer,
+      std::uint32_t image_idx,
+      std::uint32_t sync_idx)
+      : rt_(image, image_view, framebuffer)
+      , image_idx_(image_idx)
+      , sync_idx_(sync_idx) {
+  }
+
+  RenderTarget rt_;
+  std::uint32_t image_idx_;
+  std::uint32_t sync_idx_;
+};
+
+class PresentationQueue : noncopyable {
+ public:
+  PresentationQueue(
+      Application const& app,
+      Device& device,
+      Swapchain const& swapchain,
+      vk::raii::Queue const& present_queue,
+      vk::RenderPass renderpass)
+      : swapchain_(swapchain)
+      , present_queue_(present_queue) {
+    create_image_views(device);
+    create_framebuffers(app, device, renderpass);
+    create_sync_objects(device);
+  }
+
+  PresentationContext acquire_context();
+  void present_context(PresentationContext const& ctx) const;
 
  private:
-  vk::raii::SwapchainKHR const& swapchain_;
-  std::vector<vk::Image> swapchain_images_;
-  std::vector<vk::raii::ImageView> const& swapchain_image_views_;
-  std::vector<vk::raii::Framebuffer> const& swapchain_framebuffers_;
+  void create_image_views(Device const& device);
+  void create_framebuffers(
+      Application const& app,
+      Device const& device,
+      vk::RenderPass renderpass);
+  void create_sync_objects(Device const& device);
+
+  std::vector<vk::raii::ImageView> image_views_;
+  std::vector<vk::raii::Framebuffer> framebuffers_;
+  std::vector<vk::raii::Semaphore> image_ready_semaphores_;
+  Swapchain const& swapchain_;
   vk::raii::Queue const& present_queue_;
-  vk::Semaphore image_ready_semaphore_;
-  std::uint32_t image_idx_ = 0;
+  std::uint32_t image_idx_ = std::numeric_limits<std::uint32_t>::max();
+  std::uint32_t sync_idx_ = 0;
 };
 
 class Swapchain : noncopyable {
  public:
   Swapchain(Application const& app, Device& device);
 
-  PresentContext create_present_context(std::uint32_t frame_id);
-
   vk::SurfaceFormatKHR surface_format() const {
     return surface_format_;
   }
 
-  std::uint32_t num_images() const {
-    return swapchain_images_.size();
+  std::span<vk::Image const> images() const {
+    return images_;
+  }
+
+  vk::raii::SwapchainKHR const& vk() const {
+    return swapchain_;
   }
 
  private:
-  void create_render_pass(Device const& device, vk::SurfaceFormatKHR surface_format);
   void create_swapchain(Application const& app);
-  void create_sync_objects();
 
   Device const& device_;
   vk::raii::SwapchainKHR swapchain_;
-  std::vector<vk::Image> swapchain_images_;
-  std::vector<vk::raii::ImageView> swapchain_image_views_;
-  std::vector<vk::raii::Framebuffer> swapchain_framebuffers_;
-  std::vector<vk::raii::Semaphore> image_ready_semaphores_;
+  std::vector<vk::Image> images_;
   vk::raii::RenderPass composite_render_pass_;
   vk::SurfaceFormatKHR surface_format_;
   std::uint32_t queue_family_idx_;

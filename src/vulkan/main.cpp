@@ -114,7 +114,7 @@ class ImGuiRenderPass : rndrx::noncopyable {
     init_info.CheckVkResultFn = &check_vk_result;
     init_info.DescriptorPool = *descriptor_pool_;
     init_info.MinImageCount = 2;
-    init_info.ImageCount = swapchain.num_images();
+    init_info.ImageCount = swapchain.images().size();
 
     ImGui_ImplVulkan_Init(&init_info, *render_pass_);
   }
@@ -326,6 +326,14 @@ bool rndrx::vulkan::Application::run() {
 
   ShaderCache shaders = load_shaders(device);
   CompositeRenderPass final_composite(device, swapchain.surface_format().format, shaders);
+
+  PresentationQueue present_queue(
+      *this,
+      device,
+      swapchain,
+      device.graphics_queue(),
+      *final_composite.render_pass());
+
   CompositeRenderPass::DrawItem composite_imgui(
       device,
       final_composite,
@@ -375,8 +383,7 @@ bool rndrx::vulkan::Application::run() {
     sc.begin_rendering();
     imgui.render(sc);
 
-    PresentContext present_context = swapchain.create_present_context(frame_id);
-    RenderTarget final_image = present_context.acquire_next_image();
+    PresentationContext present_context = present_queue.acquire_context();
     vk::ImageMemoryBarrier swap_chain_image_transition;
     // swap_chain_image_transition //
     //     .setSrcQueueFamilyIndex(device.graphics_queue_family_idx())
@@ -405,8 +412,8 @@ bool rndrx::vulkan::Application::run() {
     RenderContext composite_context;
     composite_context.set_targets(
         window_.extents(),
-        final_image.view(),
-        final_image.framebuffer());
+        present_context.target().view(),
+        present_context.target().framebuffer());
 
     final_composite.render(composite_context, sc, {&composite_imgui, 1});
 
@@ -427,7 +434,7 @@ bool rndrx::vulkan::Application::run() {
     //     1,
     //     &swap_chain_image_transition);
     sc.finish_rendering();
-    present_context.present();
+    present_queue.present_context(present_context);
 
     ++frame_id;
   }

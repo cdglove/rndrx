@@ -114,10 +114,11 @@ class SwapChainSupportDetails {
 
 } // namespace
 
-RenderTarget PresentContext::acquire_next_image() {
-  auto result = swapchain_.acquireNextImage(
+PresentationContext PresentationQueue::acquire_context() {
+  sync_idx_ = (sync_idx_ + 1) % image_ready_semaphores_.size();
+  auto result = swapchain_.vk().acquireNextImage(
       std::numeric_limits<std::uint64_t>::max(),
-      image_ready_semaphore_);
+      *image_ready_semaphores_[sync_idx_]);
   if(result.first != vk::Result::eSuccess) {
     throw_runtime_error("Failed to handle swapchain acquire failure");
   }
@@ -125,21 +126,72 @@ RenderTarget PresentContext::acquire_next_image() {
   image_idx_ = result.second;
 
   return {
-      swapchain_images_[image_idx_],
-      *swapchain_image_views_[image_idx_],
-      *swapchain_framebuffers_[image_idx_]};
+      swapchain_.images()[image_idx_],
+      *image_views_[image_idx_],
+      *framebuffers_[image_idx_],
+      image_idx_,
+      sync_idx_};
 }
 
-void PresentContext::present() {
+void PresentationQueue::present_context(PresentationContext const& ctx) const {
   vk::PresentInfoKHR present_info;
   present_info //
-      .setWaitSemaphores(image_ready_semaphore_)
-      .setSwapchains(*swapchain_)
-      .setImageIndices(image_idx_);
+      .setWaitSemaphores(*image_ready_semaphores_[ctx.sync_idx_])
+      .setSwapchains(*swapchain_.vk())
+      .setImageIndices(ctx.image_idx_);
   auto result = present_queue_.presentKHR(present_info);
   if(result != vk::Result::eSuccess) {
     throw_runtime_error("Failed to handle swapchain present failure");
   }
+}
+
+void PresentationQueue::create_image_views(Device const& device) {
+  std::ranges::transform(
+      swapchain_.images(),
+      std::back_inserter(image_views_),
+      [this, &device](vk::Image img) {
+        vk::ImageViewCreateInfo create_info;
+        create_info //
+            .setImage(img)
+            .setViewType(vk::ImageViewType::e2D)
+            .setFormat(swapchain_.surface_format().format)
+            .setSubresourceRange(
+                vk::ImageSubresourceRange(vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1));
+        return device.vk().createImageView(create_info);
+      });
+}
+
+void PresentationQueue::create_framebuffers(
+    Application const& app,
+    Device const& device,
+    vk::RenderPass renderpass) {
+  std::ranges::transform(
+      image_views_,
+      std::back_inserter(framebuffers_),
+      [&](vk::raii::ImageView const& image_view) {
+        vk::FramebufferCreateInfo create_info;
+        create_info //
+            .setRenderPass(renderpass)
+            .setAttachments(*image_view)
+            .setWidth(app.window().width())
+            .setHeight(app.window().height())
+            .setLayers(1);
+        return device.vk().createFramebuffer(create_info);
+      });
+}
+
+void PresentationQueue::create_sync_objects(Device const& device) {
+  auto create_semaphore_at = [this, &device](int) {
+    vk::SemaphoreCreateInfo create_info;
+    return device.vk().createSemaphore(create_info);
+  };
+
+  constexpr int kNumFramesInFlight = 2;
+  auto rng = std::ranges::views::iota(0, kNumFramesInFlight);
+  std::ranges::transform(
+      rng,
+      std::back_inserter(image_ready_semaphores_),
+      create_semaphore_at);
 }
 
 Swapchain::Swapchain(Application const& app, Device& device)
@@ -147,46 +199,6 @@ Swapchain::Swapchain(Application const& app, Device& device)
     , swapchain_(nullptr)
     , composite_render_pass_(nullptr) {
   create_swapchain(app);
-  create_sync_objects();
-}
-
-PresentContext Swapchain::create_present_context(std::uint32_t frame_id) {
-  auto frame_idx = frame_id % image_ready_semaphores_.size();
-  return {
-      swapchain_,
-      swapchain_images_,
-      swapchain_image_views_,
-      swapchain_framebuffers_,
-      device_.graphics_queue(),
-      *image_ready_semaphores_[frame_idx]};
-}
-
-void Swapchain::create_render_pass(Device const& device, vk::SurfaceFormatKHR surface_format) {
-  vk::AttachmentDescription attachment_desc;
-  attachment_desc //
-      .setFormat(surface_format.format)
-      .setSamples(vk::SampleCountFlagBits::e1)
-      .setLoadOp(vk::AttachmentLoadOp::eDontCare)
-      .setStoreOp(vk::AttachmentStoreOp::eStore)
-      .setInitialLayout(vk::ImageLayout::eUndefined)
-      .setFinalLayout(vk::ImageLayout::eReadOnlyOptimal);
-
-  vk::AttachmentReference attachment_ref[1];
-  attachment_ref[0] //
-      .setAttachment(0)
-      .setLayout(vk::ImageLayout::eColorAttachmentOptimal);
-
-  vk::SubpassDescription subpass[1];
-  subpass[0] //
-      .setPipelineBindPoint(vk::PipelineBindPoint::eGraphics)
-      .setColorAttachments(attachment_ref);
-
-  vk::RenderPassCreateInfo create_info;
-  create_info //
-      .setAttachments(attachment_desc)
-      .setSubpasses(subpass);
-
-  composite_render_pass_ = device.vk().createRenderPass(create_info);
 }
 
 void Swapchain::create_swapchain(Application const& app) {
@@ -210,49 +222,7 @@ void Swapchain::create_swapchain(Application const& app) {
       .setPresentMode(support.choose_present_mode());
 
   swapchain_ = device.createSwapchainKHR(create_info);
-
-  swapchain_images_ = swapchain_.getImages();
-  std::ranges::transform(
-      swapchain_images_,
-      std::back_inserter(swapchain_image_views_),
-      [this, &device](vk::Image img) {
-        vk::ImageViewCreateInfo create_info;
-        create_info //
-            .setImage(img)
-            .setViewType(vk::ImageViewType::e2D)
-            .setFormat(surface_format_.format)
-            .setSubresourceRange(
-                vk::ImageSubresourceRange(vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1));
-        return device.createImageView(create_info);
-      });
-
-  std::ranges::transform(
-      swapchain_image_views_,
-      std::back_inserter(swapchain_framebuffers_),
-      [&app, &device, this](vk::raii::ImageView const& image_view) {
-        vk::FramebufferCreateInfo create_info;
-        create_info //
-            .setRenderPass(*composite_render_pass_)
-            .setAttachments(*image_view)
-            .setWidth(app.window().width())
-            .setHeight(app.window().height())
-            .setLayers(1);
-        return device.createFramebuffer(create_info);
-      });
-}
-
-void Swapchain::create_sync_objects() {
-  auto create_semaphore_at = [this](int) {
-    vk::SemaphoreCreateInfo create_info;
-    return device_.vk().createSemaphore(create_info);
-  };
-
-  constexpr int kNumFramesInFlight = 2;
-  auto rng = std::ranges::views::iota(0, kNumFramesInFlight);
-  std::ranges::transform(
-      rng,
-      std::back_inserter(image_ready_semaphores_),
-      create_semaphore_at);
+  images_ = swapchain_.getImages();
 }
 
 } // namespace rndrx::vulkan
