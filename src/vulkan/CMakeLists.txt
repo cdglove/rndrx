@@ -33,10 +33,13 @@ add_vulkan_fragment_shader(TARGET vulkan_shaders SOURCE ../../assets/shaders/ful
 add_vulkan_fragment_shader(TARGET vulkan_shaders SOURCE ../../assets/shaders/static_model.hlsl ENTRY_POINT Phong)
 
 set(SOURCES 
+    application.cpp
     composite_render_pass.cpp
+    device.cpp
     main.cpp
     shader_cache.cpp
     submission_context.cpp
+    swapchain.cpp
     ${dear_imgui_SOURCE_DIR}/backends/imgui_impl_glfw.cpp 
     ${dear_imgui_SOURCE_DIR}/backends/imgui_impl_vulkan.cpp
     ${dear_imgui_SOURCE_DIR}/imgui.cpp 

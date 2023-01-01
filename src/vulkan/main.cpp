@@ -11,6 +11,7 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
+#include <GLFW/glfw3.h>
 #include <vulkan/vulkan_core.h>
 #include <algorithm>
 #include <array>
@@ -42,14 +43,15 @@
 #include <vulkan/vulkan_raii.hpp>
 #include <vulkan/vulkan_structs.hpp>
 #include "application.hpp"
+#include "composite_render_pass.hpp"
 #include "device.hpp"
 #include "imgui.h"
 #include "imgui_impl_glfw.h"
 #include "imgui_impl_vulkan.h"
 #include "render_context.hpp"
-#include "composite_render_pass.hpp"
 #include "rndrx/log.hpp"
 #include "rndrx/noncopyable.hpp"
+#include "rndrx/throw_exception.hpp"
 #include "shader_cache.hpp"
 #include "submission_context.hpp"
 #include "swapchain.hpp"

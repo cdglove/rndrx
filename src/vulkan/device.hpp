@@ -25,19 +25,17 @@
 
 namespace rndrx::vulkan {
 
+class Application;
+
 class Device : noncopyable {
  public:
-  explicit Device(Application const& app) {
-    create_device(app);
-    create_descriptor_pool();
-  }
+  explicit Device(Application const& app);
 
   vk::raii::Device const& vk() const {
     return device_;
   }
 
-  vk::DescriptorPool descriptor_pool() { // intentionally non-const const since
-                                         // descriptor_pool_ can be modified
+  vk::DescriptorPool descriptor_pool() const {
     return *descriptor_pool_;
   }
 
@@ -51,62 +49,11 @@ class Device : noncopyable {
 
   std::uint32_t find_memory_type(
       std::uint32_t type_filter,
-      vk::MemoryPropertyFlags properties) const {
-    vk::PhysicalDeviceMemoryProperties mem_properties;
-    physical_device_.getMemoryProperties(&mem_properties);
-
-    for(std::uint32_t i = 0; i < mem_properties.memoryTypeCount; ++i) {
-      if((type_filter & (1 << i)) &&
-         (mem_properties.memoryTypes[i].propertyFlags & properties) == properties) {
-        return i;
-      }
-    }
-
-    throw_runtime_error("failed to find suitable memory type!");
-    return 0;
-  }
+      vk::MemoryPropertyFlags properties) const;
 
  private:
-  void create_device(Application const& app) {
-    physical_device_ = *app.selected_device();
-
-    float priority = 1.f;
-    gfx_queue_idx_ = app.find_graphics_queue();
-    vk::DeviceQueueCreateInfo queue_create_info({}, gfx_queue_idx_, 1, &priority);
-    auto required_extensions = app.get_required_device_extensions();
-    vk::PhysicalDeviceVulkan13Features vulkan_13_features;
-    vulkan_13_features.synchronization2 = true;
-    vulkan_13_features.dynamicRendering = true;
-    vk::StructureChain<vk::DeviceCreateInfo, vk::PhysicalDeviceFeatures2, vk::PhysicalDeviceVulkan13Features>
-        create_info = {
-            {{}, queue_create_info, {}, required_extensions, nullptr},
-            {},
-            vulkan_13_features};
-
-    device_ = app.selected_device().createDevice(create_info.get());
-    graphics_queue_ = device_.getQueue(gfx_queue_idx_, 0);
-  }
-
-  void create_descriptor_pool() {
-    std::array<vk::DescriptorPoolSize, 11> pool_sizes = {
-        {{vk::DescriptorType::eSampler, 1000},
-         {vk::DescriptorType::eCombinedImageSampler, 1000},
-         {vk::DescriptorType::eSampledImage, 1000},
-         {vk::DescriptorType::eStorageImage, 1000},
-         {vk::DescriptorType::eUniformTexelBuffer, 1000},
-         {vk::DescriptorType::eStorageTexelBuffer, 1000},
-         {vk::DescriptorType::eUniformBuffer, 1000},
-         {vk::DescriptorType::eStorageBuffer, 1000},
-         {vk::DescriptorType::eUniformBufferDynamic, 1000},
-         {vk::DescriptorType::eStorageBufferDynamic, 1000},
-         {vk::DescriptorType::eInputAttachment, 1000}}};
-
-    vk::DescriptorPoolCreateInfo create_info;
-    create_info.setFlags(vk::DescriptorPoolCreateFlagBits::eFreeDescriptorSet)
-        .setMaxSets(1000)
-        .setPoolSizes(pool_sizes);
-    descriptor_pool_ = device_.createDescriptorPool(create_info);
-  }
+  void create_device(Application const& app);
+  void create_descriptor_pool();
 
   vk::raii::Device device_ = nullptr;
   vk::raii::Queue graphics_queue_ = nullptr;
