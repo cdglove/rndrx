@@ -220,38 +220,36 @@ class SubmissionContext : noncopyable {
   vk::raii::Fence submit_fence_;
 };
 
-} // namespace rndrx::vulkan
-
-class FinalCompositeRenderPass : rndrx::noncopyable {
+class CompositeRenderPass : rndrx::noncopyable {
  public:
-  class RenderContext;
-  FinalCompositeRenderPass(
-      rndrx::vulkan::Device const& device,
-      rndrx::vulkan::ShaderCache const& sc)
+  class DrawItem;
+  CompositeRenderPass(Device const& device, vk::Format present_format, ShaderCache const& sc)
       : copy_image_pipeline_(nullptr) {
-    create_render_pass(device);
+    create_render_pass(device, present_format);
     create_pipeline_layout(device);
     create_pipeline(device, sc);
   }
 
+  void render(RenderContext& rc, SubmissionContext& sc, std::span<DrawItem> draw_list);
+
  private:
-  void create_render_pass(rndrx::vulkan::Device const& device) {
-    vk::AttachmentDescription attachment_desc[1];
-    attachment_desc[0] //
-        .setFormat(vk::Format::eB8G8R8A8Unorm)
+  void create_render_pass(Device const& device, vk::Format present_format) {
+    vk::AttachmentDescription attachment_desc;
+    attachment_desc //
+        .setFormat(present_format)
         .setSamples(vk::SampleCountFlagBits::e1)
         .setLoadOp(vk::AttachmentLoadOp::eClear)
         .setStoreOp(vk::AttachmentStoreOp::eStore)
         .setInitialLayout(vk::ImageLayout::eUndefined)
         .setFinalLayout(vk::ImageLayout::ePresentSrcKHR);
 
-    vk::AttachmentReference attachment_ref[1];
-    attachment_ref[0] //
+    vk::AttachmentReference attachment_ref;
+    attachment_ref //
         .setAttachment(0)
         .setLayout(vk::ImageLayout::eColorAttachmentOptimal);
 
-    vk::SubpassDescription subpass[1];
-    subpass[0] //
+    vk::SubpassDescription subpass;
+    subpass //
         .setPipelineBindPoint(vk::PipelineBindPoint::eGraphics)
         .setColorAttachments(attachment_ref);
 
@@ -263,7 +261,7 @@ class FinalCompositeRenderPass : rndrx::noncopyable {
     render_pass_ = device.vk().createRenderPass(create_info);
   }
 
-  void create_pipeline_layout(rndrx::vulkan::Device const& device) {
+  void create_pipeline_layout(Device const& device) {
     vk::SamplerCreateInfo sampler_create_info;
     sampler_ = device.vk().createSampler(sampler_create_info);
 
@@ -278,18 +276,16 @@ class FinalCompositeRenderPass : rndrx::noncopyable {
     vk::DescriptorSetLayoutCreateInfo descriptor_set_layout_create_info;
     descriptor_set_layout_create_info.setBindings(sampler_binding);
 
-    fs_layout_ = device.vk().createDescriptorSetLayout(
+    descriptor_layout_ = device.vk().createDescriptorSetLayout(
         descriptor_set_layout_create_info);
 
     vk::PipelineLayoutCreateInfo layout_create_info;
-    layout_create_info.setSetLayouts(*fs_layout_);
+    layout_create_info.setSetLayouts(*descriptor_layout_);
 
     pipeline_layout_ = device.vk().createPipelineLayout(layout_create_info);
   }
 
-  void create_pipeline(
-      rndrx::vulkan::Device const& device,
-      rndrx::vulkan::ShaderCache const& sc) {
+  void create_pipeline(Device const& device, ShaderCache const& sc) {
     std::array<vk::PipelineShaderStageCreateInfo, 2> stage_info;
     stage_info[0] //
         .setStage(vk::ShaderStageFlagBits::eVertex)
@@ -359,11 +355,94 @@ class FinalCompositeRenderPass : rndrx::noncopyable {
   }
 
   vk::raii::Sampler sampler_ = nullptr;
-  vk::raii::DescriptorSetLayout fs_layout_ = nullptr;
+  vk::raii::DescriptorSetLayout descriptor_layout_ = nullptr;
   vk::raii::PipelineLayout pipeline_layout_ = nullptr;
   vk::raii::RenderPass render_pass_ = nullptr;
   vk::raii::Pipeline copy_image_pipeline_ = nullptr;
 };
+
+class CompositeRenderPass::DrawItem : rndrx::noncopyable {
+ public:
+  DrawItem(Device& device, CompositeRenderPass const& parent_pass, vk::ImageView source) {
+    create_descriptor_set(device, parent_pass);
+    update_descriptor_set(device, parent_pass, source);
+  }
+
+  void draw(CompositeRenderPass const& pass, SubmissionContext& sc) {
+    auto&& cb = sc.command_buffer();
+    cb.bindDescriptorSets(
+        vk::PipelineBindPoint::eGraphics,
+        *pass.pipeline_layout_,
+        0,
+        1,
+        &*descriptor_set_,
+        0,
+        nullptr);
+    sc.command_buffer().draw(3, 1, 0, 0);
+  }
+
+ private:
+  void create_descriptor_set(Device& device, CompositeRenderPass const& parent_pass) {
+    vk::DescriptorSetAllocateInfo alloc_info;
+    alloc_info //
+        .setDescriptorPool(device.descriptor_pool())
+        .setSetLayouts(*parent_pass.descriptor_layout_);
+
+    auto v = device.vk().allocateDescriptorSets(alloc_info);
+    descriptor_set_ = std::move(v[0]);
+  }
+
+  void update_descriptor_set(
+      Device& device,
+      CompositeRenderPass const& parent_pass,
+      vk::ImageView source) {
+    vk::DescriptorImageInfo image_info;
+    image_info //
+        .setSampler(*parent_pass.sampler_)
+        .setImageView(source)
+        .setImageLayout(vk::ImageLayout::eReadOnlyOptimal);
+
+    vk::WriteDescriptorSet write;
+    write //
+        .setDstSet(*descriptor_set_)
+        .setDstBinding(0)
+        .setDescriptorType(vk::DescriptorType::eCombinedImageSampler)
+        .setImageInfo(image_info);
+
+    device.vk().updateDescriptorSets(write, {});
+  }
+
+  vk::raii::DescriptorSet descriptor_set_ = nullptr;
+};
+
+inline void CompositeRenderPass::render(
+    RenderContext& rc,
+    SubmissionContext& sc,
+    std::span<DrawItem> draw_list) {
+  auto&& cb = sc.command_buffer();
+
+  vk::ClearValue clear_value;
+  clear_value.color.setFloat32({0, 1, 1, 0});
+
+  vk::RenderPassBeginInfo begin_pass;
+  begin_pass //
+      .setRenderPass(*render_pass_)
+      .setFramebuffer(rc.framebuffer())
+      .setRenderArea(rc.extents())
+      .setClearValues(clear_value);
+
+  sc.command_buffer().beginRenderPass(begin_pass, vk::SubpassContents::eInline);
+
+  cb.bindPipeline(vk::PipelineBindPoint::eGraphics, *copy_image_pipeline_);
+
+  for(auto&& item : draw_list) {
+    item.draw(*this, sc);
+  }
+
+  sc.command_buffer().endRenderPass();
+}
+
+} // namespace rndrx::vulkan
 
 class ImGuiRenderPass : rndrx::noncopyable {
  public:
@@ -567,79 +646,6 @@ class ImGuiRenderPass : rndrx::noncopyable {
   vk::raii::Framebuffer framebuffer_ = nullptr;
 };
 
-class FinalCompositeRenderPass::RenderContext : rndrx::noncopyable {
- public:
-  RenderContext(
-      rndrx::vulkan::Device& device,
-      FinalCompositeRenderPass const& fc_rp,
-      ImGuiRenderPass const& imgui_rp) {
-    create_descriptor_set(device, fc_rp);
-    update_descriptor_set(device, fc_rp, imgui_rp);
-  }
-
-  void draw(
-      FinalCompositeRenderPass const& pass,
-      rndrx::vulkan::RenderContext& rc,
-      rndrx::vulkan::SubmissionContext& sc) {
-    auto&& cb = sc.command_buffer();
-
-    vk::ClearValue clear_value;
-    clear_value.color.setFloat32({0, 1, 1, 0});
-
-    vk::RenderPassBeginInfo begin_pass;
-    begin_pass //
-        .setRenderPass(*pass.render_pass_)
-        .setFramebuffer(rc.framebuffer())
-        .setRenderArea(rc.extents())
-        .setClearValues(clear_value);
-
-    sc.command_buffer().beginRenderPass(begin_pass, vk::SubpassContents::eInline);
-
-    // sc.begin_pass(rc);
-    cb.bindPipeline(vk::PipelineBindPoint::eGraphics, *pass.copy_image_pipeline_);
-    cb.bindDescriptorSets(
-        vk::PipelineBindPoint::eGraphics,
-        *pass.pipeline_layout_,
-        0,
-        1,
-        &*descriptor_set_,
-        0,
-        nullptr);
-    sc.command_buffer().draw(3, 1, 0, 0);
-    sc.command_buffer().endRenderPass();
-    // sc.end_pass();
-  }
-
- private:
-  void create_descriptor_set(
-      rndrx::vulkan::Device& device,
-      FinalCompositeRenderPass const& rp) {
-    vk::DescriptorSetAllocateInfo alloc_info(device.descriptor_pool(), 1, &*rp.fs_layout_);
-    auto v = device.vk().allocateDescriptorSets(alloc_info);
-    descriptor_set_ = std::move(v[0]);
-  }
-
-  void update_descriptor_set(
-      rndrx::vulkan::Device& device,
-      FinalCompositeRenderPass const& fc_rp,
-      ImGuiRenderPass const& imgui_rp) {
-    vk::DescriptorImageInfo image_info(
-        *fc_rp.sampler_,
-        imgui_rp.target().view(),
-        vk::ImageLayout::eReadOnlyOptimal);
-    std::array<vk::WriteDescriptorSet, 1> write = {vk::WriteDescriptorSet(
-        *descriptor_set_,
-        0,
-        0,
-        1,
-        vk::DescriptorType::eCombinedImageSampler,
-        &image_info)};
-    device.vk().updateDescriptorSets(write, {});
-  }
-
-  vk::raii::DescriptorSet descriptor_set_ = nullptr;
-};
-
 static void glfw_error_callback(int error, const char* description) {
   std::cerr << "`Glfw Error " << error << ": " << description;
 }
@@ -677,8 +683,8 @@ bool rndrx::vulkan::Application::run() {
   ImGuiRenderPass imgui(window_, *this, device, swapchain);
 
   ShaderCache shaders = load_shaders(device);
-  FinalCompositeRenderPass final_composite(device, shaders);
-  FinalCompositeRenderPass::RenderContext fcrprc(device, final_composite, imgui);
+  CompositeRenderPass final_composite(device, swapchain.surface_format().format, shaders);
+  CompositeRenderPass::DrawItem composite_imgui(device, final_composite, imgui.target().view());
 
   std::array<SubmissionContext, 3> submission_contexts = {
       {SubmissionContext(device),
@@ -757,7 +763,7 @@ bool rndrx::vulkan::Application::run() {
         final_image.view(),
         final_image.framebuffer());
 
-    fcrprc.draw(final_composite, composite_context, sc);
+    final_composite.render(composite_context, sc, {&composite_imgui, 1});
 
     // swap_chain_image_transition //
     //     .setSrcAccessMask(vk::AccessFlagBits::eColorAttachmentWrite)
