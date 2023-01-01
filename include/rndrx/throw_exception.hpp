@@ -19,13 +19,11 @@
 
 namespace rndrx {
 template <typename Ex>
-[[noreturn]]
-void throw_exception(Ex e) {
+[[noreturn]] void throw_exception(Ex e) {
   throw e;
 }
 
-[[noreturn]]
-inline void throw_runtime_error(char const* format) {
+[[noreturn]] inline void throw_runtime_error(char const* format) {
   throw_exception(std::runtime_error(format));
 }
 
