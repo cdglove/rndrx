@@ -26,6 +26,24 @@ template <typename Range>
 auto operator|(Range&& rng, to_vector_t) {
   return std::vector<std::ranges::range_value_t<Range>>(rng.begin(), rng.end());
 }
+
+template<typename Vector>
+struct to_vector_ref_t {
+  to_vector_ref_t(Vector&& v) : v_(v) {}
+  Vector& v_;
+};
+
+template<typename Vector>
+to_vector_ref_t<Vector> to_vector_ref(Vector&& v) {
+  return to_vector_ref_t<Vector>(v);
+}
+
+template <typename Range, typename Dest>
+auto operator|(Range&& rng, to_vector_ref_t<Dest> ref) {
+  ref.v_.insert(ref.v_.end(), rng.begin(), rng.end());
+  return ref.v_;
+}
+
 } // namespace rndrx
 
 #endif // RNDRX_TOVECTOR_HPP_

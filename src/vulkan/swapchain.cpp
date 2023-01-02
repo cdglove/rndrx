@@ -14,8 +14,11 @@
 #include "swapchain.hpp"
 
 #include <GLFW/glfw3.h>
+#include <iterator>
+#include <limits>
 #include <ranges>
 #include <vulkan/vulkan.hpp>
+#include <vulkan/vulkan_enums.hpp>
 #include <vulkan/vulkan_handles.hpp>
 #include <vulkan/vulkan_raii.hpp>
 #include <vulkan/vulkan_structs.hpp>
@@ -24,8 +27,16 @@
 #include "render_target.hpp"
 #include "rndrx/noncopyable.hpp"
 #include "rndrx/throw_exception.hpp"
+#include "rndrx/to_vector.hpp"
 
 namespace rndrx::vulkan {
+
+auto dereference = [](auto&& obj) { return *obj; };
+
+template <typename SourceRange, typename DestinationRange>
+void transform_from_raii(SourceRange&& src, DestinationRange&& dest) {
+  src | std::ranges::views::transform(dereference) | to_vector_ref(dest);
+}
 
 namespace {
 class SwapChainSupportDetails {
@@ -67,7 +78,7 @@ class SwapChainSupportDetails {
     return vk::PresentModeKHR::eFifo;
   }
 
-  VkExtent2D choose_extent(Window const& window) const {
+  vk::Extent2D choose_extent(Window const& window) const {
     if(capabilities_.currentExtent.width !=
        std::numeric_limits<std::uint32_t>::max()) {
       return capabilities_.currentExtent;
@@ -114,16 +125,46 @@ class SwapChainSupportDetails {
 
 } // namespace
 
+PresentationQueue::~PresentationQueue() {
+  std::vector<vk::Fence> wait_fences;
+  transform_from_raii(image_ready_fences_, wait_fences);
+  auto wait_result = swapchain_.vk().getDevice().waitForFences(
+      wait_fences,
+      VK_TRUE,
+      std::numeric_limits<std::uint64_t>::max());
+
+  if(wait_result != vk::Result::eSuccess) {
+    // Don't throw from destructor -- hope for the best.
+    // throw_runtime_error("Failed to wait for fence.");
+  }
+}
+
 PresentationContext PresentationQueue::acquire_context() {
-  sync_idx_ = (sync_idx_ + 1) % image_ready_semaphores_.size();
-  auto result = swapchain_.vk().acquireNextImage(
-      std::numeric_limits<std::uint64_t>::max(),
-      *image_ready_semaphores_[sync_idx_]);
-  if(result.first != vk::Result::eSuccess) {
+  sync_idx_ = (sync_idx_ + 1) % image_ready_fences_.size();
+  auto wait_result = swapchain_.vk().getDevice().waitForFences(
+      *image_ready_fences_[sync_idx_],
+      VK_TRUE,
+      std::numeric_limits<std::uint64_t>::max());
+
+  if(wait_result != vk::Result::eSuccess) {
+    throw_runtime_error("Failed to wait for fence.");
+  }
+
+  swapchain_.vk().getDevice().resetFences(*image_ready_fences_[sync_idx_]);
+
+  vk::AcquireNextImageInfoKHR acquire_info;
+  acquire_info //
+      .setSwapchain(*swapchain_.vk())
+      .setTimeout(std::numeric_limits<std::uint64_t>::max())
+      .setFence(*image_ready_fences_[sync_idx_])
+      .setDeviceMask(1);
+
+  auto result = swapchain_.vk().getDevice().acquireNextImage2KHR(acquire_info);
+  if(result.result != vk::Result::eSuccess) {
     throw_runtime_error("Failed to handle swapchain acquire failure");
   }
 
-  image_idx_ = result.second;
+  image_idx_ = result.value;
 
   return {
       swapchain_.images()[image_idx_],
@@ -135,10 +176,7 @@ PresentationContext PresentationQueue::acquire_context() {
 
 void PresentationQueue::present_context(PresentationContext const& ctx) const {
   vk::PresentInfoKHR present_info;
-  present_info //
-      .setWaitSemaphores(*image_ready_semaphores_[ctx.sync_idx_])
-      .setSwapchains(*swapchain_.vk())
-      .setImageIndices(ctx.image_idx_);
+  present_info.setSwapchains(*swapchain_.vk()).setImageIndices(ctx.image_idx_);
   auto result = present_queue_.presentKHR(present_info);
   if(result != vk::Result::eSuccess) {
     throw_runtime_error("Failed to handle swapchain present failure");
@@ -146,10 +184,9 @@ void PresentationQueue::present_context(PresentationContext const& ctx) const {
 }
 
 void PresentationQueue::create_image_views(Device const& device) {
-  std::ranges::transform(
-      swapchain_.images(),
-      std::back_inserter(image_views_),
-      [this, &device](vk::Image img) {
+  image_views_ = //
+      swapchain_.images() |
+      std::ranges::views::transform([this, &device](vk::Image img) {
         vk::ImageViewCreateInfo create_info;
         create_info //
             .setImage(img)
@@ -158,55 +195,49 @@ void PresentationQueue::create_image_views(Device const& device) {
             .setSubresourceRange(
                 vk::ImageSubresourceRange(vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1));
         return device.vk().createImageView(create_info);
-      });
+      }) |
+      to_vector;
 }
 
-void PresentationQueue::create_framebuffers(
-    Application const& app,
-    Device const& device,
-    vk::RenderPass renderpass) {
-  std::ranges::transform(
-      image_views_,
-      std::back_inserter(framebuffers_),
-      [&](vk::raii::ImageView const& image_view) {
-        vk::FramebufferCreateInfo create_info;
-        create_info //
-            .setRenderPass(renderpass)
-            .setAttachments(*image_view)
-            .setWidth(app.window().width())
-            .setHeight(app.window().height())
-            .setLayers(1);
-        return device.vk().createFramebuffer(create_info);
-      });
+void PresentationQueue::create_framebuffers(Device const& device, vk::RenderPass renderpass) {
+  framebuffers_ = //
+      image_views_ |
+      std::ranges::views::transform(
+          [this, &device, renderpass](vk::raii::ImageView const& image_view) {
+            vk::FramebufferCreateInfo create_info;
+            create_info //
+                .setRenderPass(renderpass)
+                .setAttachments(*image_view)
+                .setWidth(swapchain_.extent().width)
+                .setHeight(swapchain_.extent().height)
+                .setLayers(1);
+            return device.vk().createFramebuffer(create_info);
+          }) |
+      to_vector;
 }
 
 void PresentationQueue::create_sync_objects(Device const& device) {
-  auto create_semaphore_at = [this, &device](int) {
-    vk::SemaphoreCreateInfo create_info;
-    return device.vk().createSemaphore(create_info);
-  };
-
-  constexpr int kNumFramesInFlight = 2;
-  auto rng = std::ranges::views::iota(0, kNumFramesInFlight);
-  std::ranges::transform(
-      rng,
-      std::back_inserter(image_ready_semaphores_),
-      create_semaphore_at);
+  image_ready_fences_ = //
+      swapchain_.images() |
+      std::ranges::views::transform([this, &device](vk::Image img) {
+        vk::FenceCreateInfo create_info;
+        create_info.setFlags(vk::FenceCreateFlagBits::eSignaled);
+        return device.vk().createFence(create_info);
+      }) |
+      to_vector;
 }
 
 Swapchain::Swapchain(Application const& app, Device& device)
-    : device_(device)
-    , swapchain_(nullptr)
+    : swapchain_(nullptr)
     , composite_render_pass_(nullptr) {
-  create_swapchain(app);
+  create_swapchain(app, device);
 }
 
-void Swapchain::create_swapchain(Application const& app) {
+void Swapchain::create_swapchain(Application const& app, Device& device) {
   SwapChainSupportDetails support(*app.selected_device(), *app.surface());
   surface_format_ = support.choose_surface_format();
   queue_family_idx_ = app.find_graphics_queue();
-
-  auto&& device = device_.vk();
+  extent_ = support.choose_extent(app.window());
 
   vk::SwapchainCreateInfoKHR create_info;
   create_info //
@@ -214,14 +245,14 @@ void Swapchain::create_swapchain(Application const& app) {
       .setMinImageCount(support.choose_image_count())
       .setImageFormat(surface_format_.format)
       .setImageColorSpace(surface_format_.colorSpace)
-      .setImageExtent(support.choose_extent(app.window()))
+      .setImageExtent(extent_)
       .setImageArrayLayers(1)
       .setImageUsage(vk::ImageUsageFlagBits::eColorAttachment)
       .setImageSharingMode(vk::SharingMode::eExclusive)
       .setQueueFamilyIndices(queue_family_idx_)
       .setPresentMode(support.choose_present_mode());
 
-  swapchain_ = device.createSwapchainKHR(create_info);
+  swapchain_ = device.vk().createSwapchainKHR(create_info);
   images_ = swapchain_.getImages();
 }
 

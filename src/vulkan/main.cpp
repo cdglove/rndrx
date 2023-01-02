@@ -328,7 +328,6 @@ bool rndrx::vulkan::Application::run() {
   CompositeRenderPass final_composite(device, swapchain.surface_format().format, shaders);
 
   PresentationQueue present_queue(
-      *this,
       device,
       swapchain,
       device.graphics_queue(),

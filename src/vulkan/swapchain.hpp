@@ -21,6 +21,7 @@
 #include <vulkan/vulkan_enums.hpp>
 #include <vulkan/vulkan_handles.hpp>
 #include <vulkan/vulkan_raii.hpp>
+#include <vulkan/vulkan_structs.hpp>
 #include "render_target.hpp"
 #include "rndrx/noncopyable.hpp"
 
@@ -58,32 +59,30 @@ class PresentationContext {
 class PresentationQueue : noncopyable {
  public:
   PresentationQueue(
-      Application const& app,
-      Device& device,
+      Device const& device,
       Swapchain const& swapchain,
       vk::raii::Queue const& present_queue,
       vk::RenderPass renderpass)
       : swapchain_(swapchain)
       , present_queue_(present_queue) {
     create_image_views(device);
-    create_framebuffers(app, device, renderpass);
+    create_framebuffers(device, renderpass);
     create_sync_objects(device);
   }
+
+  ~PresentationQueue();
 
   PresentationContext acquire_context();
   void present_context(PresentationContext const& ctx) const;
 
  private:
   void create_image_views(Device const& device);
-  void create_framebuffers(
-      Application const& app,
-      Device const& device,
-      vk::RenderPass renderpass);
+  void create_framebuffers(Device const& device, vk::RenderPass renderpass);
   void create_sync_objects(Device const& device);
 
   std::vector<vk::raii::ImageView> image_views_;
   std::vector<vk::raii::Framebuffer> framebuffers_;
-  std::vector<vk::raii::Semaphore> image_ready_semaphores_;
+  std::vector<vk::raii::Fence> image_ready_fences_;
   Swapchain const& swapchain_;
   vk::raii::Queue const& present_queue_;
   std::uint32_t image_idx_ = std::numeric_limits<std::uint32_t>::max();
@@ -98,6 +97,10 @@ class Swapchain : noncopyable {
     return surface_format_;
   }
 
+  vk::Extent2D const& extent() const {
+    return extent_;
+  }
+
   std::span<vk::Image const> images() const {
     return images_;
   }
@@ -107,14 +110,14 @@ class Swapchain : noncopyable {
   }
 
  private:
-  void create_swapchain(Application const& app);
+  void create_swapchain(Application const& app, Device& device);
 
-  Device const& device_;
   vk::raii::SwapchainKHR swapchain_;
   std::vector<vk::Image> images_;
   vk::raii::RenderPass composite_render_pass_;
   vk::SurfaceFormatKHR surface_format_;
   std::uint32_t queue_family_idx_;
+  vk::Extent2D extent_;
 };
 
 } // namespace rndrx::vulkan
