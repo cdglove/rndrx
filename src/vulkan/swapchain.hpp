@@ -73,7 +73,7 @@ class PresentationQueue : noncopyable {
   ~PresentationQueue();
 
   PresentationContext acquire_context();
-  void present_context(PresentationContext const& ctx) const;
+  void present(PresentationContext const& ctx) const;
 
  private:
   void create_image_views(Device const& device);

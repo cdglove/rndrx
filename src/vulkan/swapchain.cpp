@@ -174,7 +174,7 @@ PresentationContext PresentationQueue::acquire_context() {
       sync_idx_};
 }
 
-void PresentationQueue::present_context(PresentationContext const& ctx) const {
+void PresentationQueue::present(PresentationContext const& ctx) const {
   vk::PresentInfoKHR present_info;
   present_info.setSwapchains(*swapchain_.vk()).setImageIndices(ctx.image_idx_);
   auto result = present_queue_.presentKHR(present_info);
@@ -220,8 +220,7 @@ void PresentationQueue::create_sync_objects(Device const& device) {
   image_ready_fences_ = //
       swapchain_.images() |
       std::ranges::views::transform([this, &device](vk::Image img) {
-        vk::FenceCreateInfo create_info;
-        create_info.setFlags(vk::FenceCreateFlagBits::eSignaled);
+        vk::FenceCreateInfo create_info(vk::FenceCreateFlagBits::eSignaled);
         return device.vk().createFence(create_info);
       }) |
       to_vector;

@@ -383,57 +383,14 @@ bool rndrx::vulkan::Application::run() {
     imgui.render(sc);
 
     PresentationContext present_context = present_queue.acquire_context();
-    vk::ImageMemoryBarrier swap_chain_image_transition;
-    // swap_chain_image_transition //
-    //     .setSrcQueueFamilyIndex(device.graphics_queue_family_idx())
-    //     .setDstQueueFamilyIndex(device.graphics_queue_family_idx())
-    //     .setImage(final_image.image())
-    //     .setSubresourceRange(
-    //         vk::ImageSubresourceRange(vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1));
-
-    // swap_chain_image_transition //
-    //     .setSrcAccessMask(vk::AccessFlagBits::eColorAttachmentRead)
-    //     .setDstAccessMask(vk::AccessFlagBits::eColorAttachmentWrite)
-    //     .setOldLayout(vk::ImageLayout::eUndefined)
-    //     .setNewLayout(vk::ImageLayout::eColorAttachmentOptimal);
-
-    // sc.command_buffer().pipelineBarrier(
-    //     vk::PipelineStageFlagBits::eAllGraphics,
-    //     vk::PipelineStageFlagBits::eAllGraphics,
-    //     vk::DependencyFlagBits::eByRegion,
-    //     0,
-    //     nullptr,
-    //     0,
-    //     nullptr,
-    //     1,
-    //     &swap_chain_image_transition);
-
     RenderContext composite_context;
     composite_context.set_targets(
         window_.extents(),
         present_context.target().view(),
         present_context.target().framebuffer());
-
     final_composite.render(composite_context, sc, {&composite_imgui, 1});
-
-    // swap_chain_image_transition //
-    //     .setSrcAccessMask(vk::AccessFlagBits::eColorAttachmentWrite)
-    //     .setDstAccessMask(vk::AccessFlagBits::eColorAttachmentRead)
-    //     .setOldLayout(vk::ImageLayout::eColorAttachmentOptimal)
-    //     .setNewLayout(vk::ImageLayout::ePresentSrcKHR);
-
-    // sc.command_buffer().pipelineBarrier(
-    //     vk::PipelineStageFlagBits::eAllGraphics,
-    //     vk::PipelineStageFlagBits::eAllGraphics,
-    //     vk::DependencyFlagBits::eByRegion,
-    //     0,
-    //     nullptr,
-    //     0,
-    //     nullptr,
-    //     1,
-    //     &swap_chain_image_transition);
     sc.finish_rendering();
-    present_queue.present_context(present_context);
+    present_queue.present(present_context);
 
     ++frame_id;
   }

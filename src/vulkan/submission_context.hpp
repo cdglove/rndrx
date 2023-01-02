@@ -47,7 +47,6 @@ class SubmissionContext : noncopyable {
   Device const& device_;
   vk::raii::CommandPool command_pool_ = nullptr;
   vk::raii::CommandBuffers command_buffers_ = nullptr;
-  vk::raii::Semaphore submit_semaphore_ = nullptr;
   vk::raii::Fence submit_fence_ = nullptr;
 };
 

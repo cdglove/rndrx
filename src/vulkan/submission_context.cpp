@@ -14,9 +14,9 @@
 #include "submission_context.hpp"
 
 #include <vulkan/vulkan_raii.hpp>
+#include "device.hpp"
 #include "render_context.hpp"
 #include "rndrx/throw_exception.hpp"
-#include "device.hpp"
 
 namespace rndrx::vulkan {
 void SubmissionContext::begin_rendering() {
@@ -36,9 +36,12 @@ void SubmissionContext::begin_rendering() {
 void SubmissionContext::finish_rendering() {
   command_buffer().end();
   vk::PipelineStageFlags stage_flags = vk::PipelineStageFlagBits::eAllCommands;
-  vk::SubmitInfo submit_info(0, nullptr, &stage_flags, 1, &*command_buffers_[0], 0, nullptr);
-  std::array<vk::Fence, 1> fences = {*submit_fence_};
-  device_.vk().resetFences(fences);
+  vk::SubmitInfo submit_info;
+  submit_info //
+      .setWaitDstStageMask(stage_flags)
+      .setCommandBuffers(*command_buffers_[0])
+      .setWaitSemaphoreCount(0);
+  device_.vk().resetFences(*submit_fence_);
   device_.graphics_queue().submit(submit_info, *submit_fence_);
 }
 
@@ -56,8 +59,6 @@ void SubmissionContext::create_command_buffers(Device const& device) {
 }
 
 void SubmissionContext::create_sync_objects(Device const& device) {
-  vk::SemaphoreCreateInfo semaphore_create_info;
-  submit_semaphore_ = device.vk().createSemaphore(semaphore_create_info);
   vk::FenceCreateInfo fence_create_info(vk::FenceCreateFlagBits::eSignaled);
   submit_fence_ = device.vk().createFence(fence_create_info);
 }
