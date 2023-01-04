@@ -64,12 +64,15 @@ Allocator::~Allocator() {
 }
 
 Allocator::Allocator(Allocator&& other) {
-  std::swap(other.allocator_, allocator_);
+  allocator_ = other.allocator_;
+  other.allocator_ = nullptr;
+  device_ = other.device_;
 }
 
 Allocator& Allocator::operator=(Allocator&& rhs) {
   allocator_ = rhs.allocator_;
   rhs.allocator_ = nullptr;
+  device_ = rhs.device_;
   return *this;
 }
 
