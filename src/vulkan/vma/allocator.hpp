@@ -59,7 +59,7 @@ class Allocator : noncopyable {
   Image createImage(VkImageCreateInfo const& create_info);
 
  private:
-  vk::raii::Device const* device_;
+  vk::raii::Device const* device_ = nullptr;
   VmaAllocator allocator_ = nullptr;
 };
 

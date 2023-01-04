@@ -19,6 +19,7 @@ function(_compile_shader_with_dxc SHADER_FILE_IN IL_FILE_OUT ENTRY_POINT SHADER_
                                                               ${DXC_FLAGS}
                                                               ${SHADER_FILE_IN}
                     COMMENT "Building shader ${IL_FILE_OUT} from ${SHADER_FILE_IN}"
+                    DEPENDS dxc
                     VERBATIM)
 endfunction()
 
