@@ -22,6 +22,7 @@
 #include <vulkan/vulkan_structs.hpp>
 #include "application.hpp"
 #include "rndrx/noncopyable.hpp"
+#include "vma/allocator.hpp"
 
 namespace rndrx::vulkan {
 
@@ -30,6 +31,7 @@ class Application;
 class Device : noncopyable {
  public:
   explicit Device(Application const& app);
+  ~Device();
 
   vk::raii::Device const& vk() const {
     return device_;
@@ -47,6 +49,10 @@ class Device : noncopyable {
     return graphics_queue_;
   }
 
+  vma::Allocator const& allocator() const {
+    return allocator_;
+  }
+
   std::uint32_t find_memory_type(
       std::uint32_t type_filter,
       vk::MemoryPropertyFlags properties) const;
@@ -60,6 +66,7 @@ class Device : noncopyable {
   vk::raii::DescriptorPool descriptor_pool_ = nullptr;
   vk::PhysicalDevice physical_device_ = nullptr;
   std::uint32_t gfx_queue_idx_ = 0;
+  vma::Allocator allocator_ = nullptr;
 };
 
 } // namespace rndrx::vulkan

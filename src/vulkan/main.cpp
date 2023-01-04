@@ -55,6 +55,7 @@
 #include "shader_cache.hpp"
 #include "submission_context.hpp"
 #include "swapchain.hpp"
+#include "vk_mem_alloc.h"
 
 #define TINYOBJLOADER_IMPLEMENTATION 1
 #define STB_IMAGE_IMPLEMENTATION     1
@@ -105,7 +106,6 @@ class ImGuiRenderPass : rndrx::noncopyable {
 
     ImGui_ImplGlfw_InitForVulkan(window.glfw(), true);
 
-    // font_view_ = device_.srv_pool().allocate();
     ImGui_ImplVulkan_InitInfo init_info = {};
     init_info.Instance = *app.vk_instance();
     init_info.PhysicalDevice = *app.selected_device();
@@ -216,18 +216,22 @@ class ImGuiRenderPass : rndrx::noncopyable {
             vk::ImageUsageFlagBits::eColorAttachment |
             vk::ImageUsageFlagBits::eSampled);
 
-    image_ = device.vk().createImage(image_create_info);
-    auto image_mem_reqs = image_.getMemoryRequirements();
+    image_ = device.allocator().createImage(image_create_info);
 
-    vk::MemoryAllocateInfo alloc_info;
-    alloc_info //
-        .setAllocationSize(image_mem_reqs.size)
-        .setMemoryTypeIndex(device.find_memory_type(
-            image_mem_reqs.memoryTypeBits,
-            vk::MemoryPropertyFlagBits::eDeviceLocal));
+    // VkImageCreateInfo& image_create_info_ref = image_create_info;
 
-    image_memory_ = device.vk().allocateMemory(alloc_info);
-    image_.bindMemory(*image_memory_, 0);
+    // image_ = device.vk().createImage(image_create_info);
+    // auto image_mem_reqs = image_.getMemoryRequirements();
+
+    // vk::MemoryAllocateInfo alloc_info;
+    // alloc_info //
+    //     .setAllocationSize(image_mem_reqs.size)
+    //     .setMemoryTypeIndex(device.find_memory_type(
+    //         image_mem_reqs.memoryTypeBits,
+    //         vk::MemoryPropertyFlagBits::eDeviceLocal));
+
+    // image_memory_ = device.vk().allocateMemory(alloc_info);
+    // image_.bindMemory(*image_memory_, 0);
 
     vk::ImageViewCreateInfo image_view_create_info;
     image_view_create_info //
@@ -282,7 +286,7 @@ class ImGuiRenderPass : rndrx::noncopyable {
   glm::vec4 clear_colour_ = {0.f, 0.f, 0.f, 1.f};
   vk::raii::DescriptorPool descriptor_pool_ = nullptr;
   vk::raii::RenderPass render_pass_ = nullptr;
-  vk::raii::Image image_ = nullptr;
+  rndrx::vulkan::vma::Image image_ = nullptr;
   vk::raii::DeviceMemory image_memory_ = nullptr;
   vk::raii::ImageView image_view_ = nullptr;
   vk::raii::Framebuffer framebuffer_ = nullptr;

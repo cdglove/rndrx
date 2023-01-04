@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #include "device.hpp"
+#include <vulkan/vulkan.hpp>
 
 #include "application.hpp"
 #include "rndrx/throw_exception.hpp"
@@ -21,6 +22,10 @@ namespace rndrx::vulkan {
 Device::Device(Application const& app) {
   create_device(app);
   create_descriptor_pool();
+}
+
+Device::~Device() {
+
 }
 
 std::uint32_t Device::find_memory_type(
@@ -58,6 +63,7 @@ void Device::create_device(Application const& app) {
 
   device_ = app.selected_device().createDevice(create_info.get());
   graphics_queue_ = device_.getQueue(gfx_queue_idx_, 0);
+  allocator_ = vma::Allocator(app.vk_instance(), device_, physical_device_);
 }
 
 void Device::create_descriptor_pool() {

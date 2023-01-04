@@ -24,6 +24,20 @@ FetchContent_Declare(
     GIT_TAG sdk-1.3.224.1)
 FetchContent_MakeAvailable(spirv_reflect)
 
+set(VMA_STATIC_VULKAN_FUNCTIONS OFF)
+set(VMA_DYNAMIC_VULKAN_FUNCTIONS OFF)
+FetchContent_Declare(
+    vma
+    GIT_REPOSITORY https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator.git
+    GIT_TAG v3.0.1)
+FetchContent_MakeAvailable(vma)
+
+FetchContent_Declare(
+    vma-hpp
+    GIT_REPOSITORY https://github.com/YaaZ/VulkanMemoryAllocator-Hpp.git
+    GIT_TAG v3.0.1)
+FetchContent_MakeAvailable(vma-hpp)
+
 add_custom_target(vulkan_shaders ALL)
 add_vulkan_vertex_shader(TARGET vulkan_shaders SOURCE ../../assets/shaders/fullscreen_quad.hlsl ENTRY_POINT VSMain)
 add_vulkan_vertex_shader(TARGET vulkan_shaders SOURCE ../../assets/shaders/static_model.hlsl ENTRY_POINT VSMain)
@@ -40,6 +54,7 @@ set(SOURCES
     shader_cache.cpp
     submission_context.cpp
     swapchain.cpp
+    vma/allocator.cpp
     ${dear_imgui_SOURCE_DIR}/backends/imgui_impl_glfw.cpp 
     ${dear_imgui_SOURCE_DIR}/backends/imgui_impl_vulkan.cpp
     ${dear_imgui_SOURCE_DIR}/imgui.cpp 
@@ -52,16 +67,24 @@ set(SOURCES
 add_executable(rndrx-vulkan ${SOURCES})
 
 target_link_libraries(rndrx-vulkan 
-    PUBLIC glfw glm tinyobjloader Vulkan::Vulkan spirv-reflect-static)
+    PUBLIC 
+    glfw 
+    glm
+    tinyobjloader
+    Vulkan::Vulkan
+    VulkanMemoryAllocator
+    spirv-reflect-static)
 
-target_include_directories(rndrx-vulkan PUBLIC 
+target_include_directories(rndrx-vulkan 
+    PUBLIC 
     ${PROJECT_SOURCE_DIR}/include
     ${dear_imgui_SOURCE_DIR} 
     ${dear_imgui_SOURCE_DIR}/backends
     ${dear_imgui_SOURCE_DIR}/misc/cpp
     ${stb_SOURCE_DIR})
 
-target_compile_definitions(rndrx-vulkan PUBLIC
+target_compile_definitions(rndrx-vulkan 
+    PUBLIC
     _CRT_SECURE_NO_DEPRECATE=1
     _CRT_SECURE_NO_WARNINGS=1
     IMGUI_USE_STB_SPRINTF=1
@@ -76,38 +99,25 @@ target_compile_definitions(rndrx-vulkan PUBLIC
     $<$<CONFIG:DEBUG>:RNDRX_ENABLE_VULKAN_DEBUG_LAYER=1>
     $<$<CONFIG:DEBUG>:RNDRX_ENABLE_SHADER_DEBUGGING=1>)
 
-target_precompile_headers(rndrx-vulkan PUBLIC
-        <vulkan/vulkan_core.h>
-        <algorithm>
-        <array>
-        <chrono>
-        <filesystem>
-        <functional>
-        <glm/gtc/matrix_transform.hpp>
-        <glm/gtx/fast_trigonometry.hpp>
-        <glm/mat3x3.hpp>
-        <glm/mat4x4.hpp>
-        <glm/vec2.hpp>
-        <glm/vec3.hpp>
-        <glm/vec4.hpp>
-        <iostream>
-        <iterator>
-        <limits>
-        <memory>
-        <queue>
-        <ranges>
-        <sstream>
-        <stdexcept>
-        <string>
-        <string_view>
-        <unordered_map>
-        <vector>
-        <vulkan/vulkan.hpp>
-        <vulkan/vulkan_enums.hpp>
-        <vulkan/vulkan_handles.hpp>
-        <vulkan/vulkan_raii.hpp>
-        <vulkan/vulkan_structs.hpp>
-    )
+target_precompile_headers(rndrx-vulkan 
+    PUBLIC
+    <vulkan/vulkan_core.h>
+    <algorithm>
+    <array>
+    <functional>
+    <iostream>
+    <iterator>
+    <ranges>
+    <sstream>
+    <stdexcept>
+    <string>
+    <string_view>
+    <vector>
+    <vulkan/vulkan.hpp>
+    <vulkan/vulkan_enums.hpp>
+    <vulkan/vulkan_handles.hpp>
+    <vulkan/vulkan_raii.hpp>
+    <vulkan/vulkan_structs.hpp>)
 
 # add_custom_command(
 #     TARGET rndrx-vulkan POST_BUILD
