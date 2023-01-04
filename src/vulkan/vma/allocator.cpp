@@ -19,13 +19,9 @@ namespace rndrx::vulkan::vma {
 Allocator::Allocator(
     vk::raii::Instance const& instance,
     vk::raii::Device const& device,
-    vk::PhysicalDevice physical_device) {
+    vk::PhysicalDevice physical_device)
+    : device_(&device) {
   VmaVulkanFunctions vulkan_functions = {};
-
-  //   vulkan_funcs.vkGetInstanceProcAddr =
-  //   instance.getDispatcher()->vkGetInstanceProcAddr;
-  //   vulkan_funcs.vkGetDeviceProcAddr =
-  //   device.getDispatcher()->vkGetDeviceProcAddr;
 
   // clang-format off
  vulkan_functions.vkGetPhysicalDeviceProperties = instance.getDispatcher()->vkGetPhysicalDeviceProperties;
@@ -77,17 +73,14 @@ Allocator& Allocator::operator=(Allocator&& rhs) {
   return *this;
 }
 
-Image Allocator::createImage(VkImageCreateInfo const& create_info) const {
-  return Image(*this, create_info);
+Image Allocator::createImage(VkImageCreateInfo const& create_info) {
+    return Image(*this, create_info);
 }
 
-namespace detail {
-ImageCreator::ImageCreator(
-    Allocator const& allocator,
-    VkImageCreateInfo const& create_info,
-    VkImage& image)
+Image::Image(Allocator& allocator, VkImageCreateInfo const& create_info)
     : allocator_(&allocator) {
   VmaAllocationCreateInfo vma_create_info = {};
+  VkImage image = nullptr;
   vmaCreateImage(
       allocator.vma(),
       &create_info,
@@ -95,30 +88,13 @@ ImageCreator::ImageCreator(
       &image,
       &allocation_,
       nullptr);
-}
-
-} // namespace detail
-
-Image::Image(std::nullptr_t)
-    : ImageCreator(nullptr)
-    , vk::raii::Image(nullptr) {
-}
-
-Image::Image(
-    Allocator const& allocator,
-    VkImageCreateInfo const& create_info,
-    detail::ImageHolder image)
-    : ImageCreator(allocator, create_info, image.image)
-    , vk::raii::Image(allocator.vma() {
+  image_ = vk::raii::Image(allocator.device(), image);
 }
 
 Image::~Image() {
-  vk::Image image = this->vk::raii::Image::release();
-  VkImage vk_image = image;
-  vmaDestroyImage(allocator_->vma(), vk_image, allocation_);
+  vk::Image img = image_.release();
+  VkImage vk_img = img;
+  vmaDestroyImage(allocator_->vma(), vk_img, allocation_);
 }
-
-Image::Image(Image&&) = default;
-Image& Image::operator=(Image&& rhs) = default;
 
 } // namespace rndrx::vulkan::vma

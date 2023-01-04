@@ -17,6 +17,7 @@
 #include "device.hpp"
 #include "render_context.hpp"
 #include "rndrx/throw_exception.hpp"
+#include <numeric>
 
 namespace rndrx::vulkan {
 void SubmissionContext::begin_rendering() {

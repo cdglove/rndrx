@@ -16,6 +16,7 @@
 #pragma once
 
 #include <limits>
+#include <span>
 #include <vector>
 #include <vulkan/vulkan.hpp>
 #include <vulkan/vulkan_enums.hpp>

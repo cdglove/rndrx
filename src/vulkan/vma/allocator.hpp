@@ -13,11 +13,13 @@
 // limitations under the License.
 #ifndef RNDRX_VULKAN_VMA_ALLOCATOR_HPP_
 #define RNDRX_VULKAN_VMA_ALLOCATOR_HPP_
-#include <vulkan/vulkan_core.h>
-#include <vulkan/vulkan_handles.hpp>
 #pragma once
 
+#include <vulkan/vulkan_core.h>
 #include <cstddef>
+#include <vulkan/vulkan.hpp>
+#include <vulkan/vulkan_handles.hpp>
+#include <vulkan/vulkan_raii.hpp>
 #include "rndrx/noncopyable.hpp"
 #include "vk_mem_alloc.h"
 
@@ -27,7 +29,10 @@ class Device;
 class PhysicalDevice;
 }; // namespace vk
 
-namespace rndrx::vulkan::vma {
+namespace rndrx::vulkan {
+class Device;
+
+namespace vma {
 
 class Image;
 
@@ -43,50 +48,41 @@ class Allocator : noncopyable {
   Allocator(Allocator&&);
   Allocator& operator=(Allocator&&);
 
-  VmaAllocator vma() const {
+  vk::raii::Device const& device() const {
+    return *device_;
+  }
+  
+  VmaAllocator vma() {
     return allocator_;
   }
 
-  Image createImage(VkImageCreateInfo const& create_info) const;
+  Image createImage(VkImageCreateInfo const& create_info);
 
  private:
+  vk::raii::Device const* device_;
   VmaAllocator allocator_ = nullptr;
 };
 
-namespace detail {
-class ImageCreator : noncopyable {
+class Image : noncopyable {
  public:
-  ImageCreator(std::nullptr_t){};
-  ImageCreator(Allocator const& alloc, VkImageCreateInfo const& create_info, VkImage& image);
+  Image(std::nullptr_t) {};
+  Image(Allocator& allocator, VkImageCreateInfo const& create_info);
+  ~Image();
 
- protected:
-  Allocator const* allocator_ = nullptr;
+  Image(Image&&) = default;
+  Image& operator=(Image&&) = default;
+
+  vk::raii::Image const& vk() const {
+    return image_;
+  }
+
+ private:
+  vk::raii::Image image_ = nullptr;
+  Allocator* allocator_ = nullptr;
   VmaAllocation allocation_ = {};
 };
 
-struct ImageHolder {
-  VkImage image = nullptr;
-};
-} // namespace detail
-
-class Image
-    // Derive from ImageCreator first so it will be constructed before
-    // vk::raii::Image so we can pretend to be a vk::raii::Image
-    : private detail::ImageCreator
-    , public vk::raii::Image {
- private:
- public:
-  Image(std::nullptr_t);
-  Image(
-      Allocator const& allocator,
-      VkImageCreateInfo const& create_info,
-      detail::ImageHolder ignore = detail::ImageHolder());
-  ~Image();
-
-  Image(Image&&);
-  Image& operator=(Image&&);
-};
-
-} // namespace rndrx::vulkan::vma
+} // namespace vma
+} // namespace rndrx::vulkan
 
 #endif // RNDRX_VULKAN_VMA_ALLOCATOR_HPP_

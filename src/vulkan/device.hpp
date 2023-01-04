@@ -49,13 +49,13 @@ class Device : noncopyable {
     return graphics_queue_;
   }
 
-  vma::Allocator const& allocator() const {
-    return allocator_;
-  }
-
   std::uint32_t find_memory_type(
       std::uint32_t type_filter,
       vk::MemoryPropertyFlags properties) const;
+
+  vma::Allocator& allocator() {
+    return allocator_;
+  }
 
  private:
   void create_device(Application const& app);

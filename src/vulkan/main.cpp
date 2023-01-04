@@ -92,7 +92,7 @@ class ImGuiRenderPass : rndrx::noncopyable {
   ImGuiRenderPass(
       rndrx::vulkan::Window const& window,
       rndrx::vulkan::Application const& app,
-      rndrx::vulkan::Device const& device,
+      rndrx::vulkan::Device& device,
       rndrx::vulkan::Swapchain const& swapchain)
       : window_(window) {
     IMGUI_CHECKVERSION();
@@ -168,7 +168,7 @@ class ImGuiRenderPass : rndrx::noncopyable {
   }
 
   rndrx::vulkan::RenderTarget target() const {
-    return {*image_, *image_view_, *framebuffer_};
+    return {*image_.vk(), *image_view_, *framebuffer_};
   }
 
  private:
@@ -201,7 +201,7 @@ class ImGuiRenderPass : rndrx::noncopyable {
   }
 
   void create_image(
-      rndrx::vulkan::Device const& device,
+      rndrx::vulkan::Device& device,
       rndrx::vulkan::Window const& window) {
     vk::ImageCreateInfo image_create_info;
     image_create_info //
@@ -218,24 +218,9 @@ class ImGuiRenderPass : rndrx::noncopyable {
 
     image_ = device.allocator().createImage(image_create_info);
 
-    // VkImageCreateInfo& image_create_info_ref = image_create_info;
-
-    // image_ = device.vk().createImage(image_create_info);
-    // auto image_mem_reqs = image_.getMemoryRequirements();
-
-    // vk::MemoryAllocateInfo alloc_info;
-    // alloc_info //
-    //     .setAllocationSize(image_mem_reqs.size)
-    //     .setMemoryTypeIndex(device.find_memory_type(
-    //         image_mem_reqs.memoryTypeBits,
-    //         vk::MemoryPropertyFlagBits::eDeviceLocal));
-
-    // image_memory_ = device.vk().allocateMemory(alloc_info);
-    // image_.bindMemory(*image_memory_, 0);
-
     vk::ImageViewCreateInfo image_view_create_info;
     image_view_create_info //
-        .setImage(*image_)
+        .setImage(*image_.vk())
         .setViewType(vk::ImageViewType::e2D)
         .setFormat(vk::Format::eR8G8B8A8Unorm)
         .setSubresourceRange(

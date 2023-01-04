@@ -15,6 +15,7 @@
 #define RNDRX_VULKAN_PRESENTRENDERPASS_HPP_
 #pragma once
 
+#include <span>
 #include <vulkan/vulkan.hpp>
 #include <vulkan/vulkan_raii.hpp>
 #include "rndrx/noncopyable.hpp"
@@ -29,7 +30,10 @@ class Device;
 class CompositeRenderPass : rndrx::noncopyable {
  public:
   class DrawItem;
-  CompositeRenderPass(Device const& device, vk::Format present_format, ShaderCache const& sc) {
+  CompositeRenderPass(
+      Device const& device,
+      vk::Format present_format,
+      ShaderCache const& sc) {
     create_render_pass(device, present_format);
     create_pipeline_layout(device);
     create_pipeline(device, sc);
