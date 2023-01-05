@@ -77,7 +77,7 @@ Allocator& Allocator::operator=(Allocator&& rhs) {
 }
 
 Image Allocator::createImage(VkImageCreateInfo const& create_info) {
-    return Image(*this, create_info);
+  return Image(*this, create_info);
 }
 
 Image::Image(Allocator& allocator, VkImageCreateInfo const& create_info)
@@ -95,9 +95,11 @@ Image::Image(Allocator& allocator, VkImageCreateInfo const& create_info)
 }
 
 Image::~Image() {
-  vk::Image img = image_.release();
-  VkImage vk_img = img;
-  vmaDestroyImage(allocator_->vma(), vk_img, allocation_);
+  if(*image_) {
+    vk::Image img = image_.release();
+    VkImage vk_img = img;
+    vmaDestroyImage(allocator_->vma(), vk_img, allocation_);
+  }
 }
 
 } // namespace rndrx::vulkan::vma

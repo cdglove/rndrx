@@ -200,9 +200,7 @@ class ImGuiRenderPass : rndrx::noncopyable {
     descriptor_pool_ = device.vk().createDescriptorPool(create_info);
   }
 
-  void create_image(
-      rndrx::vulkan::Device& device,
-      rndrx::vulkan::Window const& window) {
+  void create_image(rndrx::vulkan::Device& device, rndrx::vulkan::Window const& window) {
     vk::ImageCreateInfo image_create_info;
     image_create_info //
         .setImageType(vk::ImageType::e2D)
@@ -335,8 +333,15 @@ bool rndrx::vulkan::Application::run() {
   imgui.initialise_font(device, submission_contexts[0]);
 
   std::uint32_t frame_id = 0;
+
+  auto last_frame_ts = std::chrono::high_resolution_clock::now();
+
   while(!glfwWindowShouldClose(window_.glfw())) {
     glfwPollEvents();
+
+    auto now = std::chrono::high_resolution_clock::now();
+    auto dT = now - last_frame_ts;
+    last_frame_ts = now;
 
     imgui.update();
 
@@ -364,6 +369,11 @@ bool rndrx::vulkan::Application::run() {
         }
         ImGui::EndCombo();
       }
+      //ImGui::NewLine();
+      auto dt_s = std::chrono::duration_cast<std::chrono::duration<float>>(dT).count();
+      ImGui::Text("Framerate: %d fps", int(1 / dt_s));
+      ImGui::NewLine();
+      ImGui::Text("Frametime: %3.2f s", dt_s * 1000);
       ImGui::End();
     }
 
