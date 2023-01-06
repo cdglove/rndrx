@@ -50,6 +50,7 @@ set(SOURCES
     application.cpp
     composite_render_pass.cpp
     device.cpp
+    imgui_render_pass.cpp
     main.cpp
     shader_cache.cpp
     submission_context.cpp

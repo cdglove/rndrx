@@ -92,7 +92,11 @@ class PresentationQueue : noncopyable {
 
 class Swapchain : noncopyable {
  public:
+  Swapchain() = default;
   Swapchain(Application const& app, Device& device);
+  Swapchain(Swapchain&&) = default;
+  ~Swapchain() = default;
+  Swapchain& operator=(Swapchain&&) = default;
 
   vk::SurfaceFormatKHR surface_format() const {
     return surface_format_;
@@ -113,11 +117,10 @@ class Swapchain : noncopyable {
  private:
   void create_swapchain(Application const& app, Device& device);
 
-  vk::raii::SwapchainKHR swapchain_;
+  vk::raii::SwapchainKHR swapchain_ = nullptr;
   std::vector<vk::Image> images_;
-  vk::raii::RenderPass composite_render_pass_;
   vk::SurfaceFormatKHR surface_format_;
-  std::uint32_t queue_family_idx_;
+  std::uint32_t queue_family_idx_ = 0;
   vk::Extent2D extent_;
 };
 

@@ -226,9 +226,7 @@ void PresentationQueue::create_sync_objects(Device const& device) {
       to_vector;
 }
 
-Swapchain::Swapchain(Application const& app, Device& device)
-    : swapchain_(nullptr)
-    , composite_render_pass_(nullptr) {
+Swapchain::Swapchain(Application const& app, Device& device) {
   create_swapchain(app, device);
 }
 

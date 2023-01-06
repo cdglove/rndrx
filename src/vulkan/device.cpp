@@ -24,10 +24,6 @@ Device::Device(Application const& app) {
   create_descriptor_pool();
 }
 
-Device::~Device() {
-
-}
-
 std::uint32_t Device::find_memory_type(
     std::uint32_t type_filter,
     vk::MemoryPropertyFlags properties) const {

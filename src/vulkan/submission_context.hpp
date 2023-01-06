@@ -17,6 +17,7 @@
 
 #include <vulkan/vulkan.hpp>
 #include <vulkan/vulkan_raii.hpp>
+#include <vulkan/vulkan_structs.hpp>
 #include "rndrx/noncopyable.hpp"
 
 namespace rndrx::vulkan {
@@ -36,8 +37,12 @@ class SubmissionContext : noncopyable {
     return *command_buffers_[0];
   };
 
-  void begin_rendering();
+  void begin_rendering(vk::Rect2D extents);
   void finish_rendering();
+
+  vk::Rect2D render_extents() const {
+    return render_extents_;
+  }
 
  private:
   void create_command_pool(Device const& device);
@@ -48,6 +53,7 @@ class SubmissionContext : noncopyable {
   vk::raii::CommandPool command_pool_ = nullptr;
   vk::raii::CommandBuffers command_buffers_ = nullptr;
   vk::raii::Fence submit_fence_ = nullptr;
+  vk::Rect2D render_extents_;
 };
 
 } // namespace rndrx::vulkan

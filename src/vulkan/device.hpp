@@ -20,7 +20,6 @@
 #include <vulkan/vulkan_handles.hpp>
 #include <vulkan/vulkan_raii.hpp>
 #include <vulkan/vulkan_structs.hpp>
-#include "application.hpp"
 #include "rndrx/noncopyable.hpp"
 #include "vma/allocator.hpp"
 
@@ -30,8 +29,11 @@ class Application;
 
 class Device : noncopyable {
  public:
+  Device() = default;
   explicit Device(Application const& app);
-  ~Device();
+  ~Device() = default;
+  Device(Device&&) = default;
+  Device& operator=(Device&&) = default;
 
   vk::raii::Device const& vk() const {
     return device_;

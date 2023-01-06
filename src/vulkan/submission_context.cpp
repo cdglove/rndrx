@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #include "submission_context.hpp"
+#include <vulkan/vulkan_core.h>
 
 #include <vulkan/vulkan_raii.hpp>
 #include "device.hpp"
@@ -20,7 +21,8 @@
 #include <numeric>
 
 namespace rndrx::vulkan {
-void SubmissionContext::begin_rendering() {
+void SubmissionContext::begin_rendering(vk::Rect2D extents) {
+  render_extents_ = extents;
   auto result = device_.vk().waitForFences(
       *submit_fence_,
       VK_TRUE,

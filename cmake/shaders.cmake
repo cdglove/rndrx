@@ -14,12 +14,11 @@
 function(_compile_shader_with_dxc SHADER_FILE_IN IL_FILE_OUT ENTRY_POINT SHADER_TYPE DXC_FLAGS)
   add_custom_command(OUTPUT "${IL_FILE_OUT}"
                     MAIN_DEPENDENCY ${SHADER_FILE_IN}
-                    COMMAND ${DXC_EXECUTABLE} -nologo -E${ENTRY_POINT} -T${SHADER_TYPE}_6_0 
-                                                              $<IF:$<CONFIG:DEBUG>,-Od,-O3> -Fo${IL_FILE_OUT}
-                                                              ${DXC_FLAGS}
-                                                              ${SHADER_FILE_IN}
+                    COMMAND dxc -nologo -E${ENTRY_POINT} -T${SHADER_TYPE}_6_0 
+                                        $<IF:$<CONFIG:DEBUG>,-Od,-O3> -Fo${IL_FILE_OUT}
+                                        ${DXC_FLAGS}
+                                        ${SHADER_FILE_IN}
                     COMMENT "Building shader ${IL_FILE_OUT} from ${SHADER_FILE_IN}"
-                    DEPENDS dxc
                     VERBATIM)
 endfunction()
 
