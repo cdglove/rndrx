@@ -231,7 +231,7 @@ void Application::main_loop(DeviceState& ds) {
     update(ds, ls);
 
     if(run_state_ != RunState::Running) {
-      break;
+      return;
     }
 
     auto submission_index = ls.frame_id % submission_contexts.size();
@@ -246,27 +246,39 @@ void Application::main_loop(DeviceState& ds) {
 }
 
 void Application::create_instance() {
-  vk::ApplicationInfo app_info("rndrx-vulkan", 1, "rndrx", 1, VK_API_VERSION_1_3);
-  std::vector<char const*> request_layer_names;
 #if RNDRX_ENABLE_VULKAN_DEBUG_LAYER
   if(!check_validation_layer_support()) {
     throw_runtime_error("Debug layer not supported");
   }
 #endif
 
+  vk::ApplicationInfo app_info;
+  app_info //
+      .setPApplicationName("rndrx-vulkan")
+      .setApplicationVersion(1)
+      .setPEngineName("rndrx")
+      .setEngineVersion(1)
+      .setApiVersion(VK_API_VERSION_1_3);
+
+  std::vector<char const*> request_layer_names;
   std::ranges::copy(kValidationLayers, std::back_inserter(request_layer_names));
 
   auto required_extensions = get_required_instance_extensions();
-  vk::StructureChain<vk::InstanceCreateInfo, vk::DebugUtilsMessengerCreateInfoEXT> create_info(
-      {{}, &app_info, request_layer_names, required_extensions},
-      {{},
-       vk::DebugUtilsMessageSeverityFlagBitsEXT::eError |
-           vk::DebugUtilsMessageSeverityFlagBitsEXT::eWarning |
-           vk::DebugUtilsMessageSeverityFlagBitsEXT::eInfo,
-       vk::DebugUtilsMessageTypeFlagBitsEXT::eGeneral |
-           vk::DebugUtilsMessageTypeFlagBitsEXT::eValidation |
-           vk::DebugUtilsMessageTypeFlagBitsEXT::ePerformance,
-       &vulkan_validation_callback});
+  vk::StructureChain<vk::InstanceCreateInfo, vk::DebugUtilsMessengerCreateInfoEXT> create_info;
+  std::get<0>(create_info) //
+      .setPApplicationInfo(&app_info)
+      .setPEnabledLayerNames(request_layer_names)
+      .setPEnabledExtensionNames(required_extensions);
+  std::get<1>(create_info) //
+      .setMessageSeverity(
+          vk::DebugUtilsMessageSeverityFlagBitsEXT::eError |
+          vk::DebugUtilsMessageSeverityFlagBitsEXT::eWarning |
+          vk::DebugUtilsMessageSeverityFlagBitsEXT::eInfo)
+      .setMessageType(
+          vk::DebugUtilsMessageTypeFlagBitsEXT::eGeneral |
+          vk::DebugUtilsMessageTypeFlagBitsEXT::eValidation |
+          vk::DebugUtilsMessageTypeFlagBitsEXT::ePerformance)
+      .setPfnUserCallback(&vulkan_validation_callback);
 
 #if !RNDRX_ENABLE_VULKAN_DEBUG_LAYER
   create_info.unlink<vk::DebugUtilsMessengerCreateInfoEXT>();
@@ -342,6 +354,7 @@ void Application::update(DeviceState& ds, LoopState& ls) {
                       << selected_properties.deviceName << "' to '"
                       << candidate_properties.deviceName << "' detected.\n";
             run_state_ = RunState::Restarting;
+            return;
           }
         }
       }
