@@ -326,7 +326,7 @@ bool Application::check_validation_layer_support() {
 
 void Application::update(DeviceState& ds, LoopState& ls) {
   on_begin_update(ds, ls);
-  ds.imgui_render_pass.update();
+  ds.imgui_render_pass.begin_frame();
 
   if(ImGui::Begin("Adapter Info")) {
     ImGui::LabelText("", "Framerate: %3.1ffps (%3.2fms)", 1 / ls.dt_s, ls.dt_s * 1000);
@@ -341,7 +341,6 @@ void Application::update(DeviceState& ds, LoopState& ls) {
             LOG(Info) << "Adapter switch from '"
                       << selected_properties.deviceName << "' to '"
                       << candidate_properties.deviceName << "' detected.\n";
-            ds.device.vk().waitIdle();
             run_state_ = RunState::Restarting;
           }
         }
@@ -351,6 +350,7 @@ void Application::update(DeviceState& ds, LoopState& ls) {
     ImGui::End();
   }
 
+  ds.imgui_render_pass.end_frame();
   on_end_update(ds, ls);
 }
 

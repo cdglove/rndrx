@@ -20,6 +20,9 @@
 #include "rndrx/noncopyable.hpp"
 #include "vma/allocator.hpp"
 
+class ImDrawData;
+class ImDrawList;
+
 namespace rndrx::vulkan {
 class Application;
 class Window;
@@ -30,7 +33,8 @@ class ImGuiRenderPass : noncopyable {
  public:
   ImGuiRenderPass(Application const& app, Device& device, Swapchain const& swapchain);
   ~ImGuiRenderPass();
-  void update();
+  void begin_frame();
+  void end_frame();
   void render(SubmissionContext& sc);
   void initialise_font(Device const& device, SubmissionContext& sc);
 
@@ -50,6 +54,8 @@ class ImGuiRenderPass : noncopyable {
   vk::raii::DeviceMemory image_memory_ = nullptr;
   vk::raii::ImageView image_view_ = nullptr;
   vk::raii::Framebuffer framebuffer_ = nullptr;
+  std::unique_ptr<ImDrawData> draw_data_;
+  std::vector<ImDrawList*> draw_list_memory_;
 };
 } // namespace rndrx::vulkan
 

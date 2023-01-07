@@ -33,12 +33,15 @@ class SubmissionContext : noncopyable {
     create_sync_objects(device);
   }
 
+  ~SubmissionContext();
+
   vk::CommandBuffer command_buffer() {
     return *command_buffers_[0];
   };
 
   void begin_rendering(vk::Rect2D extents);
   void finish_rendering();
+  void wait_for_fence();
 
   vk::Rect2D render_extents() const {
     return render_extents_;

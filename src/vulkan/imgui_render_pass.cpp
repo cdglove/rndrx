@@ -13,6 +13,8 @@
 // limitations under the License.
 #include "imgui_render_pass.hpp"
 
+#include <memory>
+#include <vulkan/vulkan_structs.hpp>
 #include "application.hpp"
 #include "device.hpp"
 #include "imgui.h"
@@ -26,7 +28,8 @@ namespace rndrx::vulkan {
 ImGuiRenderPass::ImGuiRenderPass(
     Application const& app,
     Device& device,
-    Swapchain const& swapchain) {
+    Swapchain const& swapchain)
+    : draw_data_(std::make_unique<ImDrawData>()) {
   IMGUI_CHECKVERSION();
   ImGui::CreateContext();
   ImGui::StyleColorsDark();
@@ -57,15 +60,28 @@ ImGuiRenderPass::~ImGuiRenderPass() {
   ImGui::DestroyContext();
 }
 
-void ImGuiRenderPass::update() {
+void ImGuiRenderPass::begin_frame() {
   ImGui_ImplVulkan_NewFrame();
   ImGui_ImplGlfw_NewFrame();
   ImGui::NewFrame();
 }
 
-void ImGuiRenderPass::render(SubmissionContext& sc) {
+void ImGuiRenderPass::end_frame() {
   ImGui::Render();
+  for(int i = 0; i < draw_data_->CmdListsCount; ++i) {
+    IM_FREE(draw_data_->CmdLists[i]);
+  }
+
   ImDrawData* draw_data = ImGui::GetDrawData();
+  *draw_data_ = *draw_data;
+  draw_list_memory_.resize(draw_data->CmdListsCount);
+  draw_data_->CmdLists = draw_list_memory_.data();
+  for(int i = 0; i < draw_data->CmdListsCount; ++i) {
+    draw_data_->CmdLists[i] = draw_data->CmdLists[i]->CloneOutput();
+  }
+}
+
+void ImGuiRenderPass::render(SubmissionContext& sc) {
   vk::CommandBuffer command_buffer = sc.command_buffer();
 
   vk::ClearValue clear_value;
@@ -78,22 +94,19 @@ void ImGuiRenderPass::render(SubmissionContext& sc) {
       .setRenderArea(sc.render_extents())
       .setClearValues(clear_value);
   command_buffer.beginRenderPass(begin_pass, vk::SubpassContents::eInline);
-  ImGui_ImplVulkan_RenderDrawData(draw_data, command_buffer);
+  ImGui_ImplVulkan_RenderDrawData(draw_data_.get(), command_buffer);
   command_buffer.endRenderPass();
 }
 
 void ImGuiRenderPass::initialise_font(Device const& device, SubmissionContext& sc) {
-  vk::CommandBufferBeginInfo begin_info(
-      vk::CommandBufferUsageFlagBits::eOneTimeSubmit);
+  vk::CommandBufferBeginInfo begin_info;
+  begin_info.setFlags(vk::CommandBufferUsageFlagBits::eOneTimeSubmit);
 
-  auto command_buffer = sc.command_buffer();
-  command_buffer.begin(begin_info);
-  ImGui_ImplVulkan_CreateFontsTexture(command_buffer);
-  command_buffer.end();
-
-  vk::SubmitInfo submit_info({}, {}, {}, 1, &command_buffer);
-  device.graphics_queue().submit(submit_info);
-  device.vk().waitIdle();
+  // Extent doesn't matter here.
+  sc.begin_rendering(vk::Rect2D());
+  ImGui_ImplVulkan_CreateFontsTexture(sc.command_buffer());
+  sc.finish_rendering();
+  sc.wait_for_fence();
   ImGui_ImplVulkan_DestroyFontUploadObjects();
 }
 
@@ -189,5 +202,4 @@ void ImGuiRenderPass::create_render_pass(Device const& device) {
 
   render_pass_ = device.vk().createRenderPass(create_info);
 }
-
 } // namespace rndrx::vulkan

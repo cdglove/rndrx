@@ -12,25 +12,22 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #include "submission_context.hpp"
-#include <vulkan/vulkan_core.h>
 
+#include <vulkan/vulkan_core.h>
+#include <numeric>
 #include <vulkan/vulkan_raii.hpp>
 #include "device.hpp"
 #include "render_context.hpp"
 #include "rndrx/throw_exception.hpp"
-#include <numeric>
 
 namespace rndrx::vulkan {
+SubmissionContext::~SubmissionContext() {
+  wait_for_fence();
+}
+
 void SubmissionContext::begin_rendering(vk::Rect2D extents) {
   render_extents_ = extents;
-  auto result = device_.vk().waitForFences(
-      *submit_fence_,
-      VK_TRUE,
-      std::numeric_limits<std::uint64_t>::max());
-  if(result != vk::Result::eSuccess) {
-    throw_runtime_error("Failed to wait for fences.");
-  }
-
+  wait_for_fence();
   command_pool_.reset();
   vk::CommandBufferBeginInfo begin_info;
   command_buffer().begin(begin_info);
@@ -46,6 +43,16 @@ void SubmissionContext::finish_rendering() {
       .setWaitSemaphoreCount(0);
   device_.vk().resetFences(*submit_fence_);
   device_.graphics_queue().submit(submit_info, *submit_fence_);
+}
+
+void SubmissionContext::wait_for_fence() {
+  auto result = device_.vk().waitForFences(
+      *submit_fence_,
+      VK_TRUE,
+      std::numeric_limits<std::uint64_t>::max());
+  if(result != vk::Result::eSuccess) {
+    throw_runtime_error("Failed to wait for fences.");
+  }
 }
 
 void SubmissionContext::create_command_pool(Device const& device) {
