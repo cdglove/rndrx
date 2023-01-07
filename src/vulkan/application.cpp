@@ -27,6 +27,7 @@
 #include "shader_cache.hpp"
 #include "submission_context.hpp"
 #include "swapchain.hpp"
+#include "window.hpp"
 
 namespace rndrx::vulkan {
 
@@ -56,34 +57,11 @@ ShaderCache load_essential_shaders(Device& device) {
   loader.load("static_model.phong");
   return cache;
 }
-} // namespace
+
 std::array<char const*, 1> constexpr kValidationLayers = {
     "VK_LAYER_KHRONOS_validation"};
 
-Window::Window() {
-  glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-  window_ = glfwCreateWindow(
-      width_,
-      height_,
-      "rndrx-vulkan",
-      /* glfwGetPrimaryMonitor() */ nullptr,
-      nullptr);
-}
-
-Window::~Window() {
-  glfwDestroyWindow(window_);
-}
-
-Window::SizeEvent Window::handle_window_size() {
-  int old_width = width_;
-  int old_height = height_;
-  glfwGetFramebufferSize(window_, &width_, &height_);
-  if(width_ != old_width || height_ != old_height) {
-    return SizeEvent::Changed;
-  }
-
-  return SizeEvent::None;
-}
+} // namespace
 
 Application::Application(Window& window)
     : window_(window) {

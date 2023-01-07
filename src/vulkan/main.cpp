@@ -14,39 +14,12 @@
 #include <GLFW/glfw3.h>
 #include <vulkan/vulkan.hpp>
 #include "application.hpp"
+#include "window.hpp"
 
-#include "rndrx/log.hpp"
-#include "rndrx/noncopyable.hpp"
-#include "rndrx/throw_exception.hpp"
-
-#define TINYOBJLOADER_IMPLEMENTATION 1
-#define STB_IMAGE_IMPLEMENTATION     1
-#include <stb_image.h>
-#include <tiny_obj_loader.h>
-
-static void glfw_error_callback(int error, const char* description) {
-  std::cerr << "`Glfw Error " << error << ": " << description;
-}
-
-class Glfw : rndrx::noncopyable {
- public:
-  Glfw() {
-    glfwSetErrorCallback(glfw_error_callback);
-    if(!glfwInit()) {
-      rndrx::throw_runtime_error("Failed to initialise glfw");
-    }
-
-    if(!glfwVulkanSupported()) {
-      rndrx::throw_runtime_error("Vulkan not supported in glfw.");
-    }
-  }
-
-  ~Glfw() {
-    glfwTerminate();
-  }
-
- private:
-};
+// #define TINYOBJLOADER_IMPLEMENTATION 1
+// #define STB_IMAGE_IMPLEMENTATION     1
+// #include <stb_image.h>
+// #include <tiny_obj_loader.h>
 
 void choose_graphics_device(rndrx::vulkan::Application& app) {
   auto devices = app.physical_devices();
@@ -58,14 +31,19 @@ void choose_graphics_device(rndrx::vulkan::Application& app) {
   }
 }
 
+class RndrxTest : public rndrx::vulkan::Application {
+ public:
+  using Application::Application;
+};
+
 int main(int, char**) {
-  Glfw glfw;
   rndrx::vulkan::Window window;
-  rndrx::vulkan::Application app(window);
+  RndrxTest app(window);
   choose_graphics_device(app);
 
+  using rndrx::vulkan::Application;
   try {
-    while(app.run() != rndrx::vulkan::Application::RunResult::Exit)
+    while(app.run() != Application::RunResult::Exit)
       ;
   }
   catch(std::exception& e) {

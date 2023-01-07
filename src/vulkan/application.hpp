@@ -32,40 +32,7 @@ namespace rndrx::vulkan {
 class Device;
 class Swapchain;
 class ShaderCache;
-
-class Window : noncopyable {
- public:
-  Window();
-  ~Window();
-
-  GLFWwindow* glfw() const {
-    return window_;
-  }
-
-  int width() const {
-    return width_;
-  }
-
-  int height() const {
-    return height_;
-  }
-
-  vk::Rect2D extents() const {
-    return vk::Rect2D({0, 0}, vk::Extent2D(width(), height()));
-  }
-
-  enum class SizeEvent {
-    None,
-    Changed,
-  };
-
-  SizeEvent handle_window_size();
-
- private:
-  GLFWwindow* window_ = nullptr;
-  int width_ = 1920;
-  int height_ = 1080;
-};
+class Window;
 
 class Application : noncopyable {
  public:

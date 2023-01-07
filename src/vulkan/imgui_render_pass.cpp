@@ -22,6 +22,7 @@
 #include "imgui_impl_vulkan.h"
 #include "rndrx/throw_exception.hpp"
 #include "submission_context.hpp"
+#include "window.hpp"
 
 namespace rndrx::vulkan {
 

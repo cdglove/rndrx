@@ -28,6 +28,7 @@
 #include "rndrx/noncopyable.hpp"
 #include "rndrx/throw_exception.hpp"
 #include "rndrx/to_vector.hpp"
+#include "window.hpp"
 
 namespace rndrx::vulkan {
 

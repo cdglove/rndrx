@@ -56,6 +56,7 @@ set(SOURCES
     submission_context.cpp
     swapchain.cpp
     vma/allocator.cpp
+    window.cpp
     ${dear_imgui_SOURCE_DIR}/backends/imgui_impl_glfw.cpp 
     ${dear_imgui_SOURCE_DIR}/backends/imgui_impl_vulkan.cpp
     ${dear_imgui_SOURCE_DIR}/imgui.cpp 
