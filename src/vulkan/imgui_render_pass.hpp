@@ -31,12 +31,16 @@ class SubmissionContext;
 
 class ImGuiRenderPass : noncopyable {
  public:
+  ImGuiRenderPass();
   ImGuiRenderPass(Application const& app, Device& device, Swapchain const& swapchain);
+  ImGuiRenderPass(ImGuiRenderPass&&);
+  ImGuiRenderPass& operator=(ImGuiRenderPass&&);
   ~ImGuiRenderPass();
   void begin_frame();
   void end_frame();
   void render(SubmissionContext& sc);
-  void initialise_font(Device const& device, SubmissionContext& sc);
+  void create_fonts_texture(SubmissionContext& sc);
+  void finish_font_texture_creation();
 
   RenderTarget target() const {
     return {*image_.vk(), *image_view_, *framebuffer_};

@@ -30,6 +30,7 @@ class Device;
 class CompositeRenderPass : rndrx::noncopyable {
  public:
   class DrawItem;
+  CompositeRenderPass() {};
   CompositeRenderPass(
       Device const& device,
       vk::Format present_format,
@@ -38,6 +39,8 @@ class CompositeRenderPass : rndrx::noncopyable {
     create_pipeline_layout(device);
     create_pipeline(device, sc);
   }
+
+  RNDRX_DEFAULT_MOVABLE(CompositeRenderPass);
 
   void render(RenderContext& rc, SubmissionContext& sc, std::span<DrawItem> draw_list);
   vk::raii::RenderPass const& render_pass() {
@@ -58,10 +61,14 @@ class CompositeRenderPass : rndrx::noncopyable {
 
 class CompositeRenderPass::DrawItem : rndrx::noncopyable {
  public:
+  DrawItem() {}
   DrawItem(Device& device, CompositeRenderPass const& parent_pass, vk::ImageView source) {
     create_descriptor_set(device, parent_pass);
     update_descriptor_set(device, parent_pass, source);
   }
+
+  DrawItem(DrawItem&&) = default;
+  DrawItem& operator=(DrawItem&&) = default;
 
   void draw(CompositeRenderPass const& pass, SubmissionContext& sc);
 

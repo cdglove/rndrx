@@ -24,4 +24,9 @@ struct noncopyable {
 };
 } // namespace rndrx
 
+#define RNDRX_DEFAULT_MOVABLE(T)                                               \
+  ~T() = default;                                                              \
+  T(T&&) = default;                                                            \
+  T& operator=(T&&) = default;
+
 #endif // RNDRX_NONCOPYABLE_HPP_

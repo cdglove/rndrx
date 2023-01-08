@@ -70,6 +70,7 @@ Allocator::Allocator(Allocator&& other) {
 }
 
 Allocator& Allocator::operator=(Allocator&& rhs) {
+  vmaDestroyAllocator(allocator_);
   allocator_ = rhs.allocator_;
   rhs.allocator_ = nullptr;
   device_ = rhs.device_;
@@ -95,6 +96,18 @@ Image::Image(Allocator& allocator, VkImageCreateInfo const& create_info)
 }
 
 Image::~Image() {
+  clear();
+}
+
+Image& Image::operator=(Image&& rhs) {
+  clear();
+  image_ = std::move(rhs.image_);
+  allocator_ = rhs.allocator_;
+  allocation_ = rhs.allocation_;
+  return *this;
+}
+
+void Image::clear() {
   if(*image_) {
     vk::Image img = image_.release();
     VkImage vk_img = img;

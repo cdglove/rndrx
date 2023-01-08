@@ -26,6 +26,8 @@
 
 namespace rndrx::vulkan {
 
+ImGuiRenderPass::ImGuiRenderPass() = default;
+
 ImGuiRenderPass::ImGuiRenderPass(
     Application const& app,
     Device& device,
@@ -56,9 +58,11 @@ ImGuiRenderPass::ImGuiRenderPass(
 }
 
 ImGuiRenderPass::~ImGuiRenderPass() {
-  ImGui_ImplVulkan_Shutdown();
-  ImGui_ImplGlfw_Shutdown();
-  ImGui::DestroyContext();
+  if(draw_data_) {
+    ImGui_ImplVulkan_Shutdown();
+    ImGui_ImplGlfw_Shutdown();
+    ImGui::DestroyContext();
+  }
 }
 
 void ImGuiRenderPass::begin_frame() {
@@ -82,6 +86,9 @@ void ImGuiRenderPass::end_frame() {
   }
 }
 
+ImGuiRenderPass::ImGuiRenderPass(ImGuiRenderPass&&) = default;
+ImGuiRenderPass& ImGuiRenderPass::operator=(ImGuiRenderPass&&) = default;
+
 void ImGuiRenderPass::render(SubmissionContext& sc) {
   vk::CommandBuffer command_buffer = sc.command_buffer();
 
@@ -99,15 +106,11 @@ void ImGuiRenderPass::render(SubmissionContext& sc) {
   command_buffer.endRenderPass();
 }
 
-void ImGuiRenderPass::initialise_font(Device const& device, SubmissionContext& sc) {
-  vk::CommandBufferBeginInfo begin_info;
-  begin_info.setFlags(vk::CommandBufferUsageFlagBits::eOneTimeSubmit);
-
-  // Extent doesn't matter here.
-  sc.begin_rendering(vk::Rect2D());
+void ImGuiRenderPass::create_fonts_texture(SubmissionContext& sc) {
   ImGui_ImplVulkan_CreateFontsTexture(sc.command_buffer());
-  sc.finish_rendering();
-  sc.wait_for_fence();
+}
+
+void ImGuiRenderPass::finish_font_texture_creation() {
   ImGui_ImplVulkan_DestroyFontUploadObjects();
 }
 

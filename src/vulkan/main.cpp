@@ -14,6 +14,9 @@
 #include <GLFW/glfw3.h>
 #include <vulkan/vulkan.hpp>
 #include "application.hpp"
+#include "composite_render_pass.hpp"
+#include "imgui_render_pass.hpp"
+#include "render_context.hpp"
 #include "window.hpp"
 
 // #define TINYOBJLOADER_IMPLEMENTATION 1
@@ -34,6 +37,57 @@ void choose_graphics_device(rndrx::vulkan::Application& app) {
 class RndrxTest : public rndrx::vulkan::Application {
  public:
   using Application::Application;
+
+ private:
+  void on_device_objects_created() override {
+    device_objects_ = std::make_unique<DeviceObjects>();
+    device_objects_->imgui_render_pass =
+        rndrx::vulkan::ImGuiRenderPass(*this, device(), swapchain());
+
+    device_objects_->composite_imgui = rndrx::vulkan::CompositeRenderPass::DrawItem(
+        device(),
+        final_composite_pass(),
+        device_objects_->imgui_render_pass.target().view());
+  }
+
+  void on_begin_initialise_device_resources(rndrx::vulkan::SubmissionContext& ctx) override {
+    device_objects_->imgui_render_pass.create_fonts_texture(ctx);
+  }
+
+  void on_end_initialise_device_resources() override {
+    device_objects_->imgui_render_pass.finish_font_texture_creation();
+  }
+
+  void on_begin_update() override {
+    device_objects_->imgui_render_pass.begin_frame();
+  }
+
+  void on_end_update() override {
+    device_objects_->imgui_render_pass.end_frame();
+  }
+
+  void on_begin_render(rndrx::vulkan::SubmissionContext& sc) override {
+    device_objects_->imgui_render_pass.render(sc);
+  }
+
+  void on_pre_present(
+      rndrx::vulkan::SubmissionContext& sc,
+      rndrx::vulkan::PresentationContext& pc) override {
+    rndrx::vulkan::RenderContext rc;
+    rc.set_targets(window().extents(), pc.target().view(), pc.target().framebuffer());
+    final_composite_pass().render(rc, sc, {&device_objects_->composite_imgui, 1});
+  }
+
+  void on_pre_destroy_device_objects() override {
+     device_objects_.reset();
+  }
+
+  struct DeviceObjects {
+    rndrx::vulkan::ImGuiRenderPass imgui_render_pass;
+    rndrx::vulkan::CompositeRenderPass::DrawItem composite_imgui;
+  };
+
+  std::unique_ptr<DeviceObjects> device_objects_;
 };
 
 int main(int, char**) {

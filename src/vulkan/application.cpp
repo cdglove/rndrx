@@ -63,12 +63,36 @@ std::array<char const*, 1> constexpr kValidationLayers = {
 
 } // namespace
 
+struct Application::DeviceObjects {
+  DeviceObjects(Application& app)
+      : device(app)
+      , shaders(load_essential_shaders(device))
+      , swapchain(app, device)
+      , final_composite_pass(device, swapchain.surface_format().format, shaders)
+      , present_queue(
+            device,
+            swapchain,
+            device.graphics_queue(),
+            *final_composite_pass.render_pass()) {
+  }
+
+  Device device;
+  ShaderCache shaders;
+  Swapchain swapchain;
+  CompositeRenderPass final_composite_pass;
+  PresentationQueue present_queue;
+  float dt_s = 0.f;
+  std::uint32_t frame_id = 0;
+};
+
 Application::Application(Window& window)
     : window_(window) {
   create_instance();
   create_surface();
   select_device();
 }
+
+Application::~Application() = default;
 
 std::uint32_t Application::find_graphics_queue() const {
   auto queue_family_properties = selected_device().getQueueFamilyProperties();
@@ -116,7 +140,9 @@ void Application::select_device(vk::raii::PhysicalDevice const& device) {
 }
 
 Application::RunResult Application::run() {
-  run_state_ = RunState::Initialising;
+  run_result_ = RunResult::None;
+  run_status_ = RunStatus::Initialising;
+
   LOG(Info) << "Compatible adapters:";
   for(auto&& device : physical_devices()) {
     auto properties = device.getProperties();
@@ -124,103 +150,85 @@ Application::RunResult Application::run() {
               << ((*selected_device() == *device) ? " (selected)" : "");
   }
 
-  // Limit scope of device state.
-  on_pre_create_device_state();
-  {
-    DeviceState ds(*this);
-    on_device_state_created(ds);
+  on_pre_create_device_objects();
+  device_objects_ = std::make_unique<DeviceObjects>(*this);
 
-    auto exit_main_loop = on_scope_exit([this, &ds] {
-      on_pre_destroy_device_state(ds);
-      ds.device.vk().waitIdle();
-    });
+  auto exit_main_loop = on_scope_exit([this] {
+    on_pre_destroy_device_objects();
+    run_status_ = RunStatus::DestroyingDeviceObjects;
+    device_objects_->device.vk().waitIdle();
+    device_objects_.reset();
+    run_status_ = RunStatus::DeviceObjectsDestroyed;
+    on_device_objects_destroyed();
+  });
 
-    main_loop(ds);
-  }
-
-  on_device_state_destroyed();
-
-  switch(run_state()) {
-    case RunState::Restarting:
-      return RunResult::Restart;
-    case RunState::Quitting:
-      return RunResult::Exit;
-    default:
-      RNDRX_ASSERT(false);
-      return RunResult::Exit;
-  };
+  run_status_ = RunStatus::DeviceObjectsCreated;
+  on_device_objects_created();
+  main_loop();
+  RNDRX_ASSERT(run_result_ != RunResult::None);
+  return run_result_;
 }
 
-Application::DeviceState::DeviceState(Application& app)
-    : device(app)
-    , swapchain(app, device)
-    , imgui_render_pass(app, device, swapchain)
-    , shaders(load_essential_shaders(device)){};
-
-class Application::PresentationState : noncopyable {
- public:
-  PresentationState(Application& app, DeviceState& ds)
-      : final_composite_pass(ds.device, ds.swapchain.surface_format().format, ds.shaders)
-      , present_queue(
-            ds.device,
-            ds.swapchain,
-            ds.device.graphics_queue(),
-            *final_composite_pass.render_pass())
-      , composite_imgui(
-            ds.device,
-            final_composite_pass,
-            ds.imgui_render_pass.target().view()) {
-  }
-
-  CompositeRenderPass final_composite_pass;
-  PresentationQueue present_queue;
-  CompositeRenderPass::DrawItem composite_imgui;
-};
-
-void Application::main_loop(DeviceState& ds) {
-  LoopState ls;
-
-  Device& device = ds.device;
-  Swapchain& swapchain = ds.swapchain;
-  ShaderCache& shaders = ds.shaders;
-
-  PresentationState ps(*this, ds);
+void Application::main_loop() {
+  Device& device = device_objects_->device;
+  Swapchain& swapchain = device_objects_->swapchain;
+  ShaderCache& shaders = device_objects_->shaders;
 
   std::array<SubmissionContext, 3> submission_contexts = {
       {SubmissionContext(device),
        SubmissionContext(device),
        SubmissionContext(device)}};
 
-  ds.imgui_render_pass.initialise_font(device, submission_contexts[0]);
+  initialise_device_resources(submission_contexts[0]);
 
-  run_state_ = RunState::Running;
+  run_status_ = RunStatus::Running;
+  auto scopy_exit_set_status = on_scope_exit(
+      [this] { run_status_ = RunStatus::ShuttingDown; });
 
   auto last_frame_ts = std::chrono::high_resolution_clock::now();
   while(!glfwWindowShouldClose(window_.glfw())) {
     glfwPollEvents();
 
-    on_begin_frame(ds, ls);
+    on_begin_frame();
 
-    auto now = std::chrono::high_resolution_clock::now();
+    using namespace std::chrono;
+    auto now = high_resolution_clock::now();
     auto frame_duration = now - last_frame_ts;
     last_frame_ts = now;
-    ls.dt_s = duration_cast<std::chrono::duration<float>>(frame_duration).count();
+    device_objects_->dt_s = duration_cast<duration<float>>(frame_duration).count();
 
-    update(ds, ls);
+    update();
 
-    if(run_state_ != RunState::Running) {
+    if(run_result_ != RunResult::None) {
       return;
     }
 
-    auto submission_index = ls.frame_id % submission_contexts.size();
+    auto submission_index = device_objects_->frame_id % submission_contexts.size();
     SubmissionContext& sc = submission_contexts[submission_index];
-    render(ds, ls, sc, ps);
-    on_end_frame(ds, ls);
+    render(sc);
+    
+    on_end_frame();
 
-    ++ls.frame_id;
+    ++device_objects_->frame_id;
   }
 
-  run_state_ = RunState::Quitting;
+  run_result_ = RunResult::Exit;
+}
+
+Device& Application::device() {
+  return device_objects_->device;
+}
+
+Swapchain& Application::swapchain() {
+  return device_objects_->swapchain;
+}
+
+ShaderCache& Application::shaders() { 
+  return device_objects_->shaders;
+}
+
+CompositeRenderPass& Application::final_composite_pass() {
+  return device_objects_->final_composite_pass;
 }
 
 void Application::create_instance() {
@@ -314,12 +322,23 @@ bool Application::check_validation_layer_support() {
   return true;
 }
 
-void Application::update(DeviceState& ds, LoopState& ls) {
-  on_begin_update(ds, ls);
-  ds.imgui_render_pass.begin_frame();
+void Application::initialise_device_resources(SubmissionContext& ctx) {
+  ctx.begin_rendering(vk::Rect2D());
+  on_begin_initialise_device_resources(ctx);
+  ctx.finish_rendering();
+  ctx.wait_for_fence();
+  on_end_initialise_device_resources();
+}
+
+void Application::update() {
+  on_begin_update();
 
   if(ImGui::Begin("Adapter Info")) {
-    ImGui::LabelText("", "Framerate: %3.1ffps (%3.2fms)", 1 / ls.dt_s, ls.dt_s * 1000);
+    ImGui::LabelText(
+        "",
+        "Framerate: %3.1ffps (%3.2fms)",
+        1 / device_objects_->dt_s,
+        device_objects_->dt_s * 1000);
     auto const& selected = selected_device();
     auto selected_properties = selected.getProperties();
     if(ImGui::BeginCombo("##name", selected_properties.deviceName)) {
@@ -331,7 +350,7 @@ void Application::update(DeviceState& ds, LoopState& ls) {
             LOG(Info) << "Adapter switch from '"
                       << selected_properties.deviceName << "' to '"
                       << candidate_properties.deviceName << "' detected.\n";
-            run_state_ = RunState::Restarting;
+            run_result_ = RunResult::Restart;
             return;
           }
         }
@@ -341,29 +360,18 @@ void Application::update(DeviceState& ds, LoopState& ls) {
     ImGui::End();
   }
 
-  ds.imgui_render_pass.end_frame();
-  on_end_update(ds, ls);
+  on_end_update();
 }
 
-void Application::render(
-    DeviceState& ds,
-    LoopState& ls,
-    SubmissionContext& sc,
-    PresentationState& ps) {
-  sc.begin_rendering(window_.extents());
-  on_begin_render(ds, ls);
-  ds.imgui_render_pass.render(sc);
+void Application::render(SubmissionContext& ctx) {
+  ctx.begin_rendering(window_.extents());
+  on_begin_render(ctx);
 
-  PresentationContext present_context = ps.present_queue.acquire_context();
-  RenderContext composite_context;
-  composite_context.set_targets(
-      window_.extents(),
-      present_context.target().view(),
-      present_context.target().framebuffer());
-  ps.final_composite_pass.render(composite_context, sc, {&ps.composite_imgui, 1});
-  sc.finish_rendering();
-  ps.present_queue.present(present_context);
-  on_end_render(ds, ls);
+  PresentationContext present_ctx = device_objects_->present_queue.acquire_context();  
+  on_pre_present(ctx, present_ctx);
+  ctx.finish_rendering();
+  on_end_render(ctx);
+  device_objects_->present_queue.present(present_ctx);
+  on_post_present(present_ctx);
 }
-
 } // namespace rndrx::vulkan

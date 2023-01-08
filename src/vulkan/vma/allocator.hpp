@@ -51,7 +51,7 @@ class Allocator : noncopyable {
   vk::raii::Device const& device() const {
     return *device_;
   }
-  
+
   VmaAllocator vma() {
     return allocator_;
   }
@@ -65,18 +65,19 @@ class Allocator : noncopyable {
 
 class Image : noncopyable {
  public:
-  Image(std::nullptr_t) {};
+  Image(std::nullptr_t){};
   Image(Allocator& allocator, VkImageCreateInfo const& create_info);
   ~Image();
 
   Image(Image&&) = default;
-  Image& operator=(Image&&) = default;
+  Image& operator=(Image&&);
 
   vk::raii::Image const& vk() const {
     return image_;
   }
 
  private:
+  void clear();
   vk::raii::Image image_ = nullptr;
   Allocator* allocator_ = nullptr;
   VmaAllocation allocation_ = {};

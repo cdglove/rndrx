@@ -18,6 +18,7 @@
 #include <array>
 #include <span>
 #include <vulkan/vulkan_raii.hpp>
+#include "composite_render_pass.hpp"
 #include "device.hpp"
 #include "imgui_render_pass.hpp"
 #include "rndrx/assert.hpp"
@@ -37,6 +38,7 @@ class Window;
 class Application : noncopyable {
  public:
   Application(Window& window);
+  ~Application();
 
   std::uint32_t find_graphics_queue() const;
   std::vector<char const*> get_required_instance_extensions() const;
@@ -69,37 +71,31 @@ class Application : noncopyable {
   }
 
   enum class RunResult {
+    None,
     Restart,
     Exit,
   };
 
   RunResult run();
 
-  enum class RunState {
+  enum class RunStatus {
     NotRunning = 0,
     Initialising,
+    DeviceObjectsCreated,
     Running,
-    Restarting,
-    Quitting,
+    ShuttingDown,
+    DestroyingDeviceObjects,
+    DeviceObjectsDestroyed,
   };
 
-  RunState run_state() const {
-    return run_state_;
+  RunStatus run_status() const {
+    return run_status_;
   }
 
- protected:
-  struct DeviceState : noncopyable {
-    DeviceState(Application& app);
-    Device device;
-    ShaderCache shaders;
-    Swapchain swapchain;
-    ImGuiRenderPass imgui_render_pass;
-  };
-
-  struct LoopState : noncopyable {
-    std::uint32_t frame_id = 0;
-    float dt_s = 0.f;
-  };
+  Device& device();
+  Swapchain& swapchain();
+  ShaderCache& shaders();
+  CompositeRenderPass& final_composite_pass();
 
  private:
   void create_instance();
@@ -107,21 +103,29 @@ class Application : noncopyable {
   void select_device();
   bool check_validation_layer_support();
 
-  void main_loop(DeviceState& ds);
-  void update(DeviceState& ds, LoopState& ls);
-  class PresentationState;
-  void render(DeviceState& ds, LoopState& ls, SubmissionContext& sc, PresentationState& ps);
+  struct DeviceObjects;
+  void main_loop();
+  void initialise_device_resources(SubmissionContext& ctx);
+  void update();
+  void render(SubmissionContext& ctx);
+  void present(PresentationContext& ctx);
 
-  virtual void on_pre_create_device_state(){};
-  virtual void on_device_state_created(DeviceState& ds){};
-  virtual void on_begin_frame(DeviceState& ds, LoopState& ls){};
-  virtual void on_begin_update(DeviceState& ds, LoopState& ls){};
-  virtual void on_end_update(DeviceState& ds, LoopState& ls){};
-  virtual void on_begin_render(DeviceState& ds, LoopState& ls){};
-  virtual void on_end_render(DeviceState& ds, LoopState& ls){};
-  virtual void on_end_frame(DeviceState& ds, LoopState& ls){};
-  virtual void on_pre_destroy_device_state(DeviceState& ds){};
-  virtual void on_device_state_destroyed(){};
+  // clang-format off
+  virtual void on_pre_create_device_objects(){};
+  virtual void on_device_objects_created(){};
+  virtual void on_begin_initialise_device_resources(SubmissionContext&){};
+  virtual void on_end_initialise_device_resources(){};
+  virtual void on_begin_frame(){};
+  virtual void on_begin_update(){};
+  virtual void on_end_update(){};
+  virtual void on_begin_render(SubmissionContext&){};
+  virtual void on_end_render(SubmissionContext&){};
+  virtual void on_pre_present(SubmissionContext&, PresentationContext&){};
+  virtual void on_post_present(PresentationContext&){};
+  virtual void on_end_frame(){};
+  virtual void on_pre_destroy_device_objects(){};
+  virtual void on_device_objects_destroyed(){};
+  // clang-format on
 
   Window& window_;
   vk::raii::Instance instance_ = nullptr;
@@ -130,7 +134,9 @@ class Application : noncopyable {
   vk::raii::DebugUtilsMessengerEXT messenger_ = nullptr;
   vk::raii::SurfaceKHR surface_ = nullptr;
   std::vector<vk::raii::PhysicalDevice> physical_devices_;
-  RunState run_state_ = RunState::NotRunning;
+  RunStatus run_status_ = RunStatus::NotRunning;
+  RunResult run_result_ = RunResult::None;
+  std::unique_ptr<DeviceObjects> device_objects_;
 };
 
 } // namespace rndrx::vulkan
