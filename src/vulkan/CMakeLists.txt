@@ -51,7 +51,9 @@ set(SOURCES
     composite_render_pass.cpp
     device.cpp
     imgui_render_pass.cpp
+    load_scene.cpp
     main.cpp
+    scene.cpp
     shader_cache.cpp
     submission_context.cpp
     swapchain.cpp
@@ -72,10 +74,10 @@ target_link_libraries(rndrx-vulkan
     PUBLIC 
     glfw 
     glm
-    tinyobjloader
     Vulkan::Vulkan
     VulkanMemoryAllocator
-    spirv-reflect-static)
+    spirv-reflect-static
+    tinygltf)
 
 target_include_directories(rndrx-vulkan 
     PUBLIC 

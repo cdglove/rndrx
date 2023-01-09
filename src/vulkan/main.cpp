@@ -17,12 +17,8 @@
 #include "composite_render_pass.hpp"
 #include "imgui_render_pass.hpp"
 #include "render_context.hpp"
+#include "scene.hpp"
 #include "window.hpp"
-
-// #define TINYOBJLOADER_IMPLEMENTATION 1
-// #define STB_IMAGE_IMPLEMENTATION     1
-// #include <stb_image.h>
-// #include <tiny_obj_loader.h>
 
 void choose_graphics_device(rndrx::vulkan::Application& app) {
   auto devices = app.physical_devices();
@@ -79,7 +75,7 @@ class RndrxTest : public rndrx::vulkan::Application {
   }
 
   void on_pre_destroy_device_objects() override {
-     device_objects_.reset();
+    device_objects_.reset();
   }
 
   struct DeviceObjects {
@@ -92,6 +88,8 @@ class RndrxTest : public rndrx::vulkan::Application {
 
 int main(int, char**) {
   rndrx::vulkan::Window window;
+  rndrx::vulkan::Scene scene = rndrx::vulkan::load_scene(
+      "C:/src/local/rndrx/_data/NewSponza_Main_glTF_002.gltf");
   RndrxTest app(window);
   choose_graphics_device(app);
 

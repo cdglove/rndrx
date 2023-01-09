@@ -64,6 +64,19 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(tinyobjloader)
 
+FetchContent_Declare(
+    tinygltf
+    GIT_REPOSITORY https://github.com/syoyo/tinygltf.git
+    GIT_TAG        v2.7.0
+)
+FetchContent_GetProperties(tinygltf)
+if(NOT tinygltf_POPULATED)
+    FetchContent_Populate(tinygltf)
+    set(TINYGLTF_HEADER_ONLY ON CACHE INTERNAL "" FORCE)
+    set(TINYGLTF_INSTALL OFF CACHE INTERNAL "" FORCE)
+    add_subdirectory(${tinygltf_SOURCE_DIR} ${tinygltf_BINARY_DIR} EXCLUDE_FROM_ALL)
+endif()
+
 include(cmake/dxc.cmake)
 
 add_subdirectory(assets)
