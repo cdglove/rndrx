@@ -15,7 +15,7 @@
 #define RNDRX_VULKAN_WINDOW_HPP_
 #pragma once
 
-#include <vulkan/vulkan_structs.hpp>
+#include <vulkan/vulkan.hpp>
 #include "rndrx/noncopyable.hpp"
 
 struct GLFWwindow;

@@ -15,11 +15,12 @@
 
 #include <GLFW/glfw3.h>
 #include "rndrx/throw_exception.hpp"
+#include "rndrx/log.hpp"
 
 namespace rndrx::vulkan {
 namespace {
 void glfw_error_callback(int error, const char* description) {
-  std::cerr << "`Glfw Error " << error << ": " << description;
+  LOG(Error) << "`Glfw Error " << error << ": " << description;
 }
 
 } // namespace

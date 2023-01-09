@@ -32,16 +32,21 @@ if(CMAKE_HOST_SYSTEM_NAME STREQUAL "Windows")
         INTERFACE_INCLUDE_DIRECTORIES "${dxc_SOURCE_DIR}/inc")
 else()
     include(ExternalProject)
-    set(dxc_SOURCE_DIR ${CMAKE_BINARY_DIR}/dxc-prefix/src/dxc) 
-    set(dxc_BINARY_DIR ${CMAKE_BINARY_DIR}/dxc-prefix/src/dxc-build)
-    ExternalProject_Add(dxc
+    set(dxc_SOURCE_DIR ${CMAKE_BINARY_DIR}/dxc_external-prefix/src/dxc_external) 
+    set(dxc_BINARY_DIR ${CMAKE_BINARY_DIR}/dxc_external-prefix/src/dxc_external-build)
+    ExternalProject_Add(
+        dxc_external
         GIT_REPOSITORY      https://github.com/microsoft/DirectXShaderCompiler.git
         GIT_TAG             2168dcb
         CONFIGURE_COMMAND   ${CMAKE_COMMAND} -G Ninja ${dxc_SOURCE_DIR}
                                              -DCMAKE_BUILD_TYPE=Release
                                              -C ${dxc_SOURCE_DIR}/cmake/caches/PredefinedParams.cmake    
-        INSTALL_COMMAND     "")
-    add_executable(dxc IMPORTED )
+        BUILD_COMMAND       ${CMAKE_COMMAND} --build . --target dxc
+        BUILD_BYPRODUCTS    "${dxc_BINARY_DIR}/bin/dxc"
+        INSTALL_COMMAND     ""
+        EXCLUDE_FROM_ALL    True)
+    add_executable(dxc IMPORTED)
     set_property(TARGET dxc 
                  PROPERTY IMPORTED_LOCATION "${dxc_BINARY_DIR}/bin/dxc")
+    add_dependencies(dxc dxc_external)
 endif()

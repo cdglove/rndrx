@@ -15,6 +15,7 @@
 #define RNDRX_LOG_HPP_
 
 #include "rndrx/noncopyable.hpp"
+#include <iostream>
 
 namespace rndrx {
 enum class LogLevel {

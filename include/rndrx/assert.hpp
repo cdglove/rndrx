@@ -22,11 +22,18 @@
 #  endif
 #endif
 
+#ifdef _MSC_VER
+#  define DEBUG_BREAK __debugbreak()
+#else
+#  include <signal.h>
+#  define DEBUG_BREAK raise(SIGTRAP)
+#endif
+
 #if RNDRX_ENABLE_ASSERT
 #  define RNDRX_ASSERT(x)                                                      \
     do {                                                                       \
       if(!(x)) {                                                               \
-        __debugbreak();                                                        \
+        DEBUG_BREAK;                                                           \
       }                                                                        \
     } while(false)
 #else

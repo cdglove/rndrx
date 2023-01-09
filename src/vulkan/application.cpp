@@ -14,6 +14,7 @@
 #include "application.hpp"
 
 #include <GLFW/glfw3.h>
+#include <chrono>
 #include "composite_render_pass.hpp"
 #include "device.hpp"
 #include "imgui.h"
@@ -206,7 +207,7 @@ void Application::main_loop() {
     auto submission_index = device_objects_->frame_id % submission_contexts.size();
     SubmissionContext& sc = submission_contexts[submission_index];
     render(sc);
-    
+
     on_end_frame();
 
     ++device_objects_->frame_id;
@@ -223,7 +224,7 @@ Swapchain& Application::swapchain() {
   return device_objects_->swapchain;
 }
 
-ShaderCache& Application::shaders() { 
+ShaderCache& Application::shaders() {
   return device_objects_->shaders;
 }
 
@@ -367,7 +368,7 @@ void Application::render(SubmissionContext& ctx) {
   ctx.begin_rendering(window_.extents());
   on_begin_render(ctx);
 
-  PresentationContext present_ctx = device_objects_->present_queue.acquire_context();  
+  PresentationContext present_ctx = device_objects_->present_queue.acquire_context();
   on_pre_present(ctx, present_ctx);
   ctx.finish_rendering();
   on_end_render(ctx);

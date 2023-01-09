@@ -19,6 +19,7 @@
 #include "render_context.hpp"
 #include "scene.hpp"
 #include "window.hpp"
+#include <iostream>
 
 void choose_graphics_device(rndrx::vulkan::Application& app) {
   auto devices = app.physical_devices();
@@ -88,8 +89,8 @@ class RndrxTest : public rndrx::vulkan::Application {
 
 int main(int, char**) {
   rndrx::vulkan::Window window;
-  rndrx::vulkan::Scene scene = rndrx::vulkan::load_scene(
-      "C:/src/local/rndrx/_data/NewSponza_Main_glTF_002.gltf");
+  // rndrx::vulkan::Scene scene = rndrx::vulkan::load_scene(
+  //     "C:/src/local/rndrx/_data/NewSponza_Main_glTF_002.gltf");
   RndrxTest app(window);
   choose_graphics_device(app);
 
