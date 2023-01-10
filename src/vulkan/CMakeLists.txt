@@ -123,6 +123,13 @@ target_precompile_headers(rndrx-vulkan
     <vulkan/vulkan_raii.hpp>
     <vulkan/vulkan_structs.hpp>)
 
+add_executable(rndrx-vulkan-minimal minimal.cpp)
+
+target_link_libraries(rndrx-vulkan-minimal 
+    PUBLIC 
+    glfw 
+    Vulkan::Vulkan)
+
 # add_custom_command(
 #     TARGET rndrx-vulkan POST_BUILD
 #     COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_RUNTIME_DLLS:rndrx-vulkan> ${PROJECT_BINARY_DIR}/stage
