@@ -72,40 +72,37 @@ class Application : noncopyable {
 
   void run();
 
+ private:
   Device& device();
   Swapchain& swapchain();
   ShaderCache& shaders();
   CompositeRenderPass& final_composite_pass();
 
- private:
   void create_instance();
   void create_surface();
   void select_device();
   bool check_validation_layer_support();
 
-  struct DeviceObjects;
   void main_loop();
   void initialise_device_resources(SubmissionContext& ctx);
-  void update();
+  void update(float dt_s);
   void render(SubmissionContext& ctx);
   void present(PresentationContext& ctx);
 
-  // clang-format off
-  virtual void on_pre_create_device_objects(){};
-  virtual void on_device_objects_created(){};
-  virtual void on_begin_initialise_device_resources(SubmissionContext&){};
-  virtual void on_end_initialise_device_resources(){};
-  virtual void on_begin_frame(){};
-  virtual void on_begin_update(){};
-  virtual void on_end_update(){};
-  virtual void on_begin_render(SubmissionContext&){};
-  virtual void on_end_render(SubmissionContext&){};
-  virtual void on_pre_present(SubmissionContext&, PresentationContext&){};
-  virtual void on_post_present(PresentationContext&){};
-  virtual void on_end_frame(){};
-  virtual void on_pre_destroy_device_objects(){};
-  virtual void on_device_objects_destroyed(){};
-  // clang-format on
+  void on_pre_create_device_objects();
+  void on_device_objects_created();
+  void on_begin_initialise_device_resources(SubmissionContext&);
+  void on_end_initialise_device_resources();
+  void on_begin_frame();
+  void on_begin_update();
+  void on_end_update();
+  void on_begin_render(SubmissionContext&);
+  void on_end_render(SubmissionContext&);
+  void on_pre_present(SubmissionContext&, PresentationContext&);
+  void on_post_present(PresentationContext&);
+  void on_end_frame();
+  void on_pre_destroy_device_objects();
+  void on_device_objects_destroyed();
 
   enum class RunResult {
     None,
@@ -132,7 +129,10 @@ class Application : noncopyable {
   std::vector<vk::raii::PhysicalDevice> physical_devices_;
   RunStatus run_status_ = RunStatus::NotRunning;
   RunResult run_result_ = RunResult::None;
+  struct DeviceObjects;
   std::unique_ptr<DeviceObjects> device_objects_;
+  struct RenderObjects;
+  std::unique_ptr<RenderObjects> render_objects_;
 };
 
 } // namespace rndrx::vulkan

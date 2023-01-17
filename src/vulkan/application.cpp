@@ -15,6 +15,7 @@
 
 #include <GLFW/glfw3.h>
 #include <chrono>
+#include <memory>
 #include "composite_render_pass.hpp"
 #include "device.hpp"
 #include "imgui.h"
@@ -82,8 +83,19 @@ struct Application::DeviceObjects {
   Swapchain swapchain;
   CompositeRenderPass final_composite_pass;
   PresentationQueue present_queue;
-  float dt_s = 0.f;
-  std::uint32_t frame_id = 0;
+};
+
+struct Application::RenderObjects {
+  RenderObjects(Application& app)
+      : imgui_render_pass(app, app.device(), app.swapchain())
+      , composite_imgui(
+            app.device(),
+            app.device_objects_->final_composite_pass,
+            imgui_render_pass.target().view()) {
+  }
+
+  ImGuiRenderPass imgui_render_pass;
+  CompositeRenderPass::DrawItem composite_imgui;
 };
 
 Application::Application() {
@@ -156,9 +168,9 @@ void Application::run() {
     device_objects_ = std::make_unique<DeviceObjects>(*this);
 
     auto exit_main_loop = on_scope_exit([this] {
-      on_pre_destroy_device_objects();
       run_status_ = RunStatus::DestroyingDeviceObjects;
-      device_objects_->device.vk().waitIdle();
+      device().vk().waitIdle();
+      on_pre_destroy_device_objects();
       device_objects_.reset();
       run_status_ = RunStatus::DeviceObjectsDestroyed;
       on_device_objects_destroyed();
@@ -188,6 +200,7 @@ void Application::main_loop() {
       [this] { run_status_ = RunStatus::ShuttingDown; });
 
   auto last_frame_ts = std::chrono::high_resolution_clock::now();
+  std::uint32_t frame_id = 0;
   while(!glfwWindowShouldClose(window_.glfw())) {
     glfwPollEvents();
 
@@ -197,21 +210,21 @@ void Application::main_loop() {
     auto now = high_resolution_clock::now();
     auto frame_duration = now - last_frame_ts;
     last_frame_ts = now;
-    device_objects_->dt_s = duration_cast<duration<float>>(frame_duration).count();
+    float dt_s = duration_cast<duration<float>>(frame_duration).count();
 
-    update();
+    update(dt_s);
 
     if(run_result_ != RunResult::None) {
       return;
     }
 
-    auto submission_index = device_objects_->frame_id % submission_contexts.size();
+    auto submission_index = frame_id % submission_contexts.size();
     SubmissionContext& sc = submission_contexts[submission_index];
     render(sc);
 
     on_end_frame();
 
-    ++device_objects_->frame_id;
+    ++frame_id;
   }
 
   run_result_ = RunResult::Exit;
@@ -232,7 +245,6 @@ ShaderCache& Application::shaders() {
 CompositeRenderPass& Application::final_composite_pass() {
   return device_objects_->final_composite_pass;
 }
-
 void Application::create_instance() {
 #if RNDRX_ENABLE_VULKAN_DEBUG_LAYER
   if(!check_validation_layer_support()) {
@@ -332,15 +344,11 @@ void Application::initialise_device_resources(SubmissionContext& ctx) {
   on_end_initialise_device_resources();
 }
 
-void Application::update() {
+void Application::update(float dt_s) {
   on_begin_update();
 
   if(ImGui::Begin("Adapter Info")) {
-    ImGui::LabelText(
-        "",
-        "Framerate: %3.1ffps (%3.2fms)",
-        1 / device_objects_->dt_s,
-        device_objects_->dt_s * 1000);
+    ImGui::LabelText("", "Framerate: %3.1ffps (%3.2fms)", 1 / dt_s, dt_s * 1000);
     auto const& selected = selected_device();
     auto selected_properties = selected.getProperties();
     if(ImGui::BeginCombo("##name", selected_properties.deviceName)) {
@@ -376,4 +384,54 @@ void Application::render(SubmissionContext& ctx) {
   device_objects_->present_queue.present(present_ctx);
   on_post_present(present_ctx);
 }
+
+void Application::on_pre_create_device_objects(){};
+
+void Application::on_device_objects_created() {
+  render_objects_ = std::make_unique<RenderObjects>(*this);
+};
+
+void Application::on_begin_initialise_device_resources(
+    rndrx::vulkan::SubmissionContext& ctx) {
+  render_objects_->imgui_render_pass.create_fonts_texture(ctx);
+}
+
+void Application::on_end_initialise_device_resources() {
+  render_objects_->imgui_render_pass.finish_font_texture_creation();
+}
+
+void Application::on_begin_frame(){};
+
+void Application::on_begin_update() {
+  render_objects_->imgui_render_pass.begin_frame();
+}
+
+void Application::on_end_update() {
+  render_objects_->imgui_render_pass.end_frame();
+}
+
+void Application::on_begin_render(rndrx::vulkan::SubmissionContext& sc) {
+  render_objects_->imgui_render_pass.render(sc);
+}
+
+void Application::on_end_render(SubmissionContext&){};
+
+void Application::on_pre_present(
+    rndrx::vulkan::SubmissionContext& sc,
+    rndrx::vulkan::PresentationContext& pc) {
+  rndrx::vulkan::RenderContext rc;
+  rc.set_targets(window().extents(), pc.target().view(), pc.target().framebuffer());
+  final_composite_pass().render(rc, sc, {&render_objects_->composite_imgui, 1});
+}
+
+void Application::on_post_present(PresentationContext&){};
+
+void Application::on_end_frame(){};
+
+void Application::on_pre_destroy_device_objects() {
+  render_objects_.reset();
+}
+
+void Application::on_device_objects_destroyed(){};
+
 } // namespace rndrx::vulkan
