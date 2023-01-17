@@ -91,8 +91,8 @@ class SwapChainSupportDetails {
       glfwGetFramebufferSize(window.glfw(), &width, &height);
 
       vk::Extent2D actual_extent(
-          static_cast<uint32_t>(width),
-          static_cast<uint32_t>(height));
+          static_cast<std::uint32_t>(width),
+          static_cast<std::uint32_t>(height));
 
       actual_extent.width = std::clamp(
           actual_extent.width,
@@ -153,14 +153,12 @@ PresentationContext PresentationQueue::acquire_context() {
 
   swapchain_.vk().getDevice().resetFences(*image_ready_fences_[sync_idx_]);
 
-  vk::AcquireNextImageInfoKHR acquire_info;
-  acquire_info //
-      .setSwapchain(*swapchain_.vk())
-      .setTimeout(std::numeric_limits<std::uint64_t>::max())
-      .setFence(*image_ready_fences_[sync_idx_])
-      .setDeviceMask(1);
-
-  auto result = swapchain_.vk().getDevice().acquireNextImage2KHR(acquire_info);
+  auto result = swapchain_.vk().getDevice().acquireNextImage2KHR(
+      vk::AcquireNextImageInfoKHR()
+          .setSwapchain(*swapchain_.vk())
+          .setTimeout(std::numeric_limits<std::uint64_t>::max())
+          .setFence(*image_ready_fences_[sync_idx_])
+          .setDeviceMask(1));
   if(result.result != vk::Result::eSuccess) {
     throw_runtime_error("Failed to handle swapchain acquire failure");
   }
@@ -188,14 +186,17 @@ void PresentationQueue::create_image_views(Device const& device) {
   image_views_ = //
       swapchain_.images() |
       std::ranges::views::transform([this, &device](vk::Image img) {
-        vk::ImageViewCreateInfo create_info;
-        create_info //
-            .setImage(img)
-            .setViewType(vk::ImageViewType::e2D)
-            .setFormat(swapchain_.surface_format().format)
-            .setSubresourceRange(
-                vk::ImageSubresourceRange(vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1));
-        return device.vk().createImageView(create_info);
+        return device.vk().createImageView(
+            vk::ImageViewCreateInfo()
+                .setImage(img)
+                .setViewType(vk::ImageViewType::e2D)
+                .setFormat(swapchain_.surface_format().format)
+                .setSubresourceRange(vk::ImageSubresourceRange(
+                    vk::ImageAspectFlagBits::eColor,
+                    0,
+                    1,
+                    0,
+                    1)));
       }) |
       to_vector;
 }
@@ -205,14 +206,13 @@ void PresentationQueue::create_framebuffers(Device const& device, vk::RenderPass
       image_views_ |
       std::ranges::views::transform(
           [this, &device, renderpass](vk::raii::ImageView const& image_view) {
-            vk::FramebufferCreateInfo create_info;
-            create_info //
-                .setRenderPass(renderpass)
-                .setAttachments(*image_view)
-                .setWidth(swapchain_.extent().width)
-                .setHeight(swapchain_.extent().height)
-                .setLayers(1);
-            return device.vk().createFramebuffer(create_info);
+            return device.vk().createFramebuffer(
+                vk::FramebufferCreateInfo()
+                    .setRenderPass(renderpass)
+                    .setAttachments(*image_view)
+                    .setWidth(swapchain_.extent().width)
+                    .setHeight(swapchain_.extent().height)
+                    .setLayers(1));
           }) |
       to_vector;
 }
@@ -237,20 +237,18 @@ void Swapchain::create_swapchain(Application const& app, Device& device) {
   queue_family_idx_ = app.find_graphics_queue();
   extent_ = support.choose_extent(app.window());
 
-  vk::SwapchainCreateInfoKHR create_info;
-  create_info //
-      .setSurface(*app.surface())
-      .setMinImageCount(support.choose_image_count())
-      .setImageFormat(surface_format_.format)
-      .setImageColorSpace(surface_format_.colorSpace)
-      .setImageExtent(extent_)
-      .setImageArrayLayers(1)
-      .setImageUsage(vk::ImageUsageFlagBits::eColorAttachment)
-      .setImageSharingMode(vk::SharingMode::eExclusive)
-      .setQueueFamilyIndices(queue_family_idx_)
-      .setPresentMode(support.choose_present_mode());
-
-  swapchain_ = device.vk().createSwapchainKHR(create_info);
+  swapchain_ = device.vk().createSwapchainKHR(
+      vk::SwapchainCreateInfoKHR()
+          .setSurface(*app.surface())
+          .setMinImageCount(support.choose_image_count())
+          .setImageFormat(surface_format_.format)
+          .setImageColorSpace(surface_format_.colorSpace)
+          .setImageExtent(extent_)
+          .setImageArrayLayers(1)
+          .setImageUsage(vk::ImageUsageFlagBits::eColorAttachment)
+          .setImageSharingMode(vk::SharingMode::eExclusive)
+          .setQueueFamilyIndices(queue_family_idx_)
+          .setPresentMode(support.choose_present_mode()));
   images_ = swapchain_.getImages();
 }
 

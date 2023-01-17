@@ -25,6 +25,7 @@
 #include "rndrx/noncopyable.hpp"
 #include "shader_cache.hpp"
 #include "swapchain.hpp"
+#include "window.hpp"
 
 struct GLFWwindow;
 
@@ -33,11 +34,10 @@ namespace rndrx::vulkan {
 class Device;
 class Swapchain;
 class ShaderCache;
-class Window;
 
 class Application : noncopyable {
  public:
-  Application(Window& window);
+  Application();
   ~Application();
 
   std::uint32_t find_graphics_queue() const;
@@ -70,27 +70,7 @@ class Application : noncopyable {
     return window_;
   }
 
-  enum class RunResult {
-    None,
-    Restart,
-    Exit,
-  };
-
-  RunResult run();
-
-  enum class RunStatus {
-    NotRunning = 0,
-    Initialising,
-    DeviceObjectsCreated,
-    Running,
-    ShuttingDown,
-    DestroyingDeviceObjects,
-    DeviceObjectsDestroyed,
-  };
-
-  RunStatus run_status() const {
-    return run_status_;
-  }
+  void run();
 
   Device& device();
   Swapchain& swapchain();
@@ -127,7 +107,23 @@ class Application : noncopyable {
   virtual void on_device_objects_destroyed(){};
   // clang-format on
 
-  Window& window_;
+  enum class RunResult {
+    None,
+    Restart,
+    Exit,
+  };
+  
+  enum class RunStatus {
+    NotRunning = 0,
+    Initialising,
+    DeviceObjectsCreated,
+    Running,
+    ShuttingDown,
+    DestroyingDeviceObjects,
+    DeviceObjectsDestroyed,
+  };
+
+  Window window_;
   vk::raii::Instance instance_ = nullptr;
   int selected_device_idx_;
   vk::raii::Context vk_context_;

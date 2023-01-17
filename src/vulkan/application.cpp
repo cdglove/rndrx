@@ -86,8 +86,7 @@ struct Application::DeviceObjects {
   std::uint32_t frame_id = 0;
 };
 
-Application::Application(Window& window)
-    : window_(window) {
+Application::Application() {
   create_instance();
   create_surface();
   select_device();
@@ -119,13 +118,14 @@ std::vector<char const*> Application::get_required_instance_extensions() const {
 }
 
 std::vector<char const*> Application::get_required_device_extensions() const {
-  std::vector<char const*> extensions;
-  extensions.push_back(VK_KHR_SWAPCHAIN_EXTENSION_NAME);
-  extensions.push_back(VK_KHR_DYNAMIC_RENDERING_EXTENSION_NAME);
-  extensions.push_back(VK_KHR_DEPTH_STENCIL_RESOLVE_EXTENSION_NAME);
-  extensions.push_back(VK_KHR_CREATE_RENDERPASS_2_EXTENSION_NAME);
-  extensions.push_back(VK_KHR_MULTIVIEW_EXTENSION_NAME);
-  extensions.push_back(VK_KHR_MAINTENANCE_2_EXTENSION_NAME);
+  std::vector<char const*> extensions = {
+      VK_KHR_SWAPCHAIN_EXTENSION_NAME,
+      VK_KHR_DYNAMIC_RENDERING_EXTENSION_NAME,
+      VK_KHR_DEPTH_STENCIL_RESOLVE_EXTENSION_NAME,
+      VK_KHR_CREATE_RENDERPASS_2_EXTENSION_NAME,
+      VK_KHR_MULTIVIEW_EXTENSION_NAME,
+      VK_KHR_MAINTENANCE_2_EXTENSION_NAME,
+  };
   return extensions;
 }
 
@@ -140,34 +140,34 @@ void Application::select_device(vk::raii::PhysicalDevice const& device) {
   selected_device_idx_ = std::distance(physical_devices_.begin(), item);
 }
 
-Application::RunResult Application::run() {
-  run_result_ = RunResult::None;
-  run_status_ = RunStatus::Initialising;
+void Application::run() {
+  while(run_result_ != RunResult::Exit) {
+    run_result_ = RunResult::None;
+    run_status_ = RunStatus::Initialising;
 
-  LOG(Info) << "Compatible adapters:";
-  for(auto&& device : physical_devices()) {
-    auto properties = device.getProperties();
-    LOG(Info) << "    " << properties.deviceName
-              << ((*selected_device() == *device) ? " (selected)" : "");
+    LOG(Info) << "Compatible adapters:";
+    for(auto&& device : physical_devices()) {
+      auto properties = device.getProperties();
+      LOG(Info) << "    " << properties.deviceName
+                << ((*selected_device() == *device) ? " (selected)" : "");
+    }
+
+    on_pre_create_device_objects();
+    device_objects_ = std::make_unique<DeviceObjects>(*this);
+
+    auto exit_main_loop = on_scope_exit([this] {
+      on_pre_destroy_device_objects();
+      run_status_ = RunStatus::DestroyingDeviceObjects;
+      device_objects_->device.vk().waitIdle();
+      device_objects_.reset();
+      run_status_ = RunStatus::DeviceObjectsDestroyed;
+      on_device_objects_destroyed();
+    });
+
+    run_status_ = RunStatus::DeviceObjectsCreated;
+    on_device_objects_created();
+    main_loop();
   }
-
-  on_pre_create_device_objects();
-  device_objects_ = std::make_unique<DeviceObjects>(*this);
-
-  auto exit_main_loop = on_scope_exit([this] {
-    on_pre_destroy_device_objects();
-    run_status_ = RunStatus::DestroyingDeviceObjects;
-    device_objects_->device.vk().waitIdle();
-    device_objects_.reset();
-    run_status_ = RunStatus::DeviceObjectsDestroyed;
-    on_device_objects_destroyed();
-  });
-
-  run_status_ = RunStatus::DeviceObjectsCreated;
-  on_device_objects_created();
-  main_loop();
-  RNDRX_ASSERT(run_result_ != RunResult::None);
-  return run_result_;
 }
 
 void Application::main_loop() {
@@ -175,10 +175,11 @@ void Application::main_loop() {
   Swapchain& swapchain = device_objects_->swapchain;
   ShaderCache& shaders = device_objects_->shaders;
 
-  std::array<SubmissionContext, 3> submission_contexts = {
-      {SubmissionContext(device),
-       SubmissionContext(device),
-       SubmissionContext(device)}};
+  std::array<SubmissionContext, 3> submission_contexts = {{
+      SubmissionContext(device),
+      SubmissionContext(device),
+      SubmissionContext(device),
+  }};
 
   initialise_device_resources(submission_contexts[0]);
 
@@ -252,11 +253,11 @@ void Application::create_instance() {
 
   auto required_extensions = get_required_instance_extensions();
   vk::StructureChain<vk::InstanceCreateInfo, vk::DebugUtilsMessengerCreateInfoEXT> create_info;
-  std::get<0>(create_info) //
+  get<0>(create_info) //
       .setPApplicationInfo(&app_info)
       .setPEnabledLayerNames(request_layer_names)
       .setPEnabledExtensionNames(required_extensions);
-  std::get<1>(create_info) //
+  get<1>(create_info) //
       .setMessageSeverity(
           vk::DebugUtilsMessageSeverityFlagBitsEXT::eError |
           vk::DebugUtilsMessageSeverityFlagBitsEXT::eWarning |

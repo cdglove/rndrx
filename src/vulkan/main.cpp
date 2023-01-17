@@ -19,7 +19,6 @@
 #include "imgui_render_pass.hpp"
 #include "render_context.hpp"
 #include "scene.hpp"
-#include "window.hpp"
 
 void choose_graphics_device(rndrx::vulkan::Application& app) {
   auto devices = app.physical_devices();
@@ -88,16 +87,14 @@ class RndrxTest : public rndrx::vulkan::Application {
 };
 
 int main(int, char**) {
-  rndrx::vulkan::Window window;
-  rndrx::vulkan::Scene scene = rndrx::vulkan::load_scene(
-      "assets/models/NewSponza_Main_glTF_002.gltf");
-  RndrxTest app(window);
+  // rndrx::vulkan::Scene scene = rndrx::vulkan::load_scene(
+  //     "assets/models/NewSponza_Main_glTF_002.gltf");
+  RndrxTest app;
   choose_graphics_device(app);
 
   using rndrx::vulkan::Application;
   try {
-    while(app.run() != Application::RunResult::Exit)
-      ;
+    app.run();
   }
   catch(std::exception& e) {
     std::cerr << e.what() << std::endl;
