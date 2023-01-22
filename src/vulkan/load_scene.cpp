@@ -15,13 +15,6 @@
 #include "rndrx/throw_exception.hpp"
 #include "scene.hpp"
 
-#define TINYGLTF_USE_CPP14 1
-
-// For now. But these might be moved later.
-#define STB_IMAGE_IMPLEMENTATION       1
-#define STB_IMAGE_WRITE_IMPLEMENTATION 1
-#define TINYGLTF_IMPLEMENTATION        1
-
 #include "tiny_gltf.h"
 
 namespace rndrx::vulkan {

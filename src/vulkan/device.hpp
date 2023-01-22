@@ -39,21 +39,55 @@ class Device : noncopyable {
     return device_;
   }
 
+  vk::PhysicalDevice physical_device() {
+    return physical_device_;
+  }
+
   vk::DescriptorPool descriptor_pool() const {
     return *descriptor_pool_;
   }
 
   std::uint32_t graphics_queue_family_idx() const {
-    return gfx_queue_idx_;
+    return queue_family_indices_.graphics;
   }
 
-  vk::raii::Queue const& graphics_queue() const {
+  vk::raii::Queue& graphics_queue() {
     return graphics_queue_;
   }
 
-  std::uint32_t find_memory_type(
-      std::uint32_t type_filter,
-      vk::MemoryPropertyFlags properties) const;
+  vk::raii::CommandPool& graphics_command_pool() {
+    return graphics_command_pool_;
+  }
+
+  vk::raii::CommandBuffer alloc_graphics_command_buffer() {
+    return std::move(vk().allocateCommandBuffers( //
+                             vk::CommandBufferAllocateInfo()
+                                 .setCommandBufferCount(1)
+                                 .setCommandPool(*graphics_command_pool())
+                                 .setLevel(vk::CommandBufferLevel::ePrimary))
+                         .front());
+  }
+
+  std::uint32_t transfer_queue_family_idx() const {
+    return queue_family_indices_.transfer;
+  }
+
+  vk::raii::Queue& transfer_queue() {
+    return transfer_queue_;
+  }
+
+  vk::raii::CommandPool& transfer_command_pool() {
+    return transfer_command_pool_;
+  }
+
+  vk::raii::CommandBuffer alloc_transfer_command_buffer() {
+    return std::move(vk().allocateCommandBuffers( //
+                             vk::CommandBufferAllocateInfo()
+                                 .setCommandBufferCount(1)
+                                 .setCommandPool(*transfer_command_pool())
+                                 .setLevel(vk::CommandBufferLevel::ePrimary))
+                         .front());
+  }
 
   vma::Allocator& allocator() {
     return allocator_;
@@ -62,12 +96,19 @@ class Device : noncopyable {
  private:
   void create_device(Application const& app);
   void create_descriptor_pool();
+  void create_command_pools();
 
   vk::raii::Device device_ = nullptr;
   vk::raii::Queue graphics_queue_ = nullptr;
+  vk::raii::Queue transfer_queue_ = nullptr;
+  vk::raii::CommandPool graphics_command_pool_ = 0;
+  vk::raii::CommandPool transfer_command_pool_ = 0;
   vk::raii::DescriptorPool descriptor_pool_ = nullptr;
   vk::PhysicalDevice physical_device_ = nullptr;
-  std::uint32_t gfx_queue_idx_ = 0;
+  struct {
+    std::uint32_t graphics = 0;
+    std::uint32_t transfer = 0;
+  } queue_family_indices_;
   vma::Allocator allocator_ = nullptr;
 };
 

@@ -234,7 +234,7 @@ Swapchain::Swapchain(Application const& app, Device& device) {
 void Swapchain::create_swapchain(Application const& app, Device& device) {
   SwapChainSupportDetails support(*app.selected_device(), *app.surface());
   surface_format_ = support.choose_surface_format();
-  queue_family_idx_ = app.find_graphics_queue();
+  queue_family_idx_ = app.find_graphics_queue_family_idx();
   extent_ = support.choose_extent(app.window());
 
   swapchain_ = device.vk().createSwapchainKHR(

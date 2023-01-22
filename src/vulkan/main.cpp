@@ -16,10 +16,11 @@
 #include <vulkan/vulkan.hpp>
 #include "application.hpp"
 #include "composite_render_pass.hpp"
+#include "gltf/model.hpp"
 #include "imgui_render_pass.hpp"
 #include "render_context.hpp"
-#include "scene.hpp"
 
+namespace {
 void choose_graphics_device(rndrx::vulkan::Application& app) {
   auto devices = app.physical_devices();
   for(auto&& device : app.physical_devices()) {
@@ -29,6 +30,7 @@ void choose_graphics_device(rndrx::vulkan::Application& app) {
     }
   }
 }
+} // namespace
 
 int main(int, char**) {
   // rndrx::vulkan::Scene scene = rndrx::vulkan::load_scene(

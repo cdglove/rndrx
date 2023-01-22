@@ -14,6 +14,7 @@
 #include "application.hpp"
 
 #include <GLFW/glfw3.h>
+#include <vulkan/vulkan_core.h>
 #include <chrono>
 #include <memory>
 #include "composite_render_pass.hpp"
@@ -106,7 +107,7 @@ Application::Application() {
 
 Application::~Application() = default;
 
-std::uint32_t Application::find_graphics_queue() const {
+std::uint32_t Application::find_graphics_queue_family_idx() const {
   auto queue_family_properties = selected_device().getQueueFamilyProperties();
   auto graphics_queue = std::ranges::find_if(
       queue_family_properties,
@@ -115,7 +116,67 @@ std::uint32_t Application::find_graphics_queue() const {
                vk::QueueFlagBits::eGraphics;
       });
 
+  RNDRX_ASSERT(graphics_queue != queue_family_properties.end());
   return std::distance(queue_family_properties.begin(), graphics_queue);
+}
+
+std::uint32_t Application::find_transfer_queue_family_idx() const {
+  auto queue_family_properties = selected_device().getQueueFamilyProperties();
+
+  // Try to find a dedicated transfer queue family
+  auto transfer_queue = std::ranges::find_if(
+      queue_family_properties,
+      [](vk::QueueFamilyProperties const& props) {
+        if(props.queueFlags & vk::QueueFlagBits::eGraphics) {
+          return false;
+        }
+
+        if(props.queueFlags & vk::QueueFlagBits::eCompute) {
+          return false;
+        }
+
+        return (props.queueFlags & vk::QueueFlagBits::eTransfer) ==
+               vk::QueueFlagBits::eTransfer;
+      });
+
+  // If we can't find a dedicated family with multiple queues
+  // that supports transfer. 
+  if(transfer_queue == queue_family_properties.end()) {
+    transfer_queue = std::ranges::find_if(
+        queue_family_properties,
+        [](vk::QueueFamilyProperties const& props) {
+          if(props.queueCount == 1) {
+            return false;
+          }
+          
+          return (props.queueFlags & vk::QueueFlagBits::eTransfer) ==
+                 vk::QueueFlagBits::eTransfer;
+        });
+  }
+
+  // If we can't find a dedicated family multiple queues try to get one that
+  // at least supports transfer. 
+  if(transfer_queue == queue_family_properties.end()) {
+    transfer_queue = std::ranges::find_if(
+        queue_family_properties,
+        [](vk::QueueFamilyProperties const& props) {
+          return (props.queueFlags & vk::QueueFlagBits::eTransfer) ==
+                 vk::QueueFlagBits::eTransfer;
+        });
+  }
+
+  // Otherwise, fall back to the graphics queue and hope for the best
+  if(transfer_queue == queue_family_properties.end()) {
+    transfer_queue = std::ranges::find_if(
+        queue_family_properties,
+        [](vk::QueueFamilyProperties const& props) {
+          return (props.queueFlags & vk::QueueFlagBits::eGraphics) ==
+                 vk::QueueFlagBits::eGraphics;
+        });
+  }
+
+  RNDRX_ASSERT(transfer_queue != queue_family_properties.end());
+  return std::distance(queue_family_properties.begin(), transfer_queue);
 }
 
 std::vector<char const*> Application::get_required_instance_extensions() const {

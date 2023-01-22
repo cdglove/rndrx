@@ -11,14 +11,10 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-#ifndef RNDRX_VULKAN_VMA_ALLOCATOR_HPP_
-#define RNDRX_VULKAN_VMA_ALLOCATOR_HPP_
+#ifndef RNDRX_VULKAN_VMA_BUFFER_HPP_
+#define RNDRX_VULKAN_VMA_BUFFER_HPP_
 #pragma once
 
-#include <vulkan/vulkan_core.h>
-#include <cstddef>
-#include <vulkan/vulkan.hpp>
-#include <vulkan/vulkan_handles.hpp>
 #include <vulkan/vulkan_raii.hpp>
 #include "rndrx/noncopyable.hpp"
 #include "vk_mem_alloc.h"
@@ -31,39 +27,36 @@ class PhysicalDevice;
 
 namespace rndrx::vulkan {
 class Device;
-}
 
-namespace rndrx::vulkan::vma {
+namespace vma {
+class Allocator;
 
-class Image;
-
-class Allocator : noncopyable {
+class Buffer : noncopyable {
  public:
-  Allocator(std::nullptr_t){};
-  Allocator(
-      vk::raii::Instance const& instance,
-      vk::raii::Device const& device,
-      vk::PhysicalDevice physical_device);
-  ~Allocator();
+  Buffer(std::nullptr_t){};
+  Buffer(Allocator& allocator, vk::BufferCreateInfo const& create_info);
+  ~Buffer();
 
-  Allocator(Allocator&&);
-  Allocator& operator=(Allocator&&);
+  Buffer(Buffer&&) = default;
+  Buffer& operator=(Buffer&&);
 
-  vk::raii::Device const& device() const {
-    return *device_;
+  void* mapped_data() {
+    return info_.pMappedData;
   }
 
-  VmaAllocator vma() {
-    return allocator_;
+  vk::raii::Buffer const& vk() const {
+    return buffer_;
   }
-
-  Image createImage(vk::ImageCreateInfo const& create_info);
 
  private:
-  vk::raii::Device const* device_ = nullptr;
-  VmaAllocator allocator_ = nullptr;
+  void clear();
+  vk::raii::Buffer buffer_ = nullptr;
+  Allocator* allocator_ = nullptr;
+  VmaAllocation allocation_ = {};
+  VmaAllocationInfo info_ = {};
 };
 
-} // namespace rndrx::vulkan::vma
+} // namespace vma
+} // namespace rndrx::vulkan
 
-#endif // RNDRX_VULKAN_VMA_ALLOCATOR_HPP_
+#endif // RNDRX_VULKAN_VMA_BUFFER_HPP_

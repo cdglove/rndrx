@@ -55,12 +55,12 @@ void SubmissionContext::wait_for_fence() {
   }
 }
 
-void SubmissionContext::create_command_pool(Device const& device) {
+void SubmissionContext::create_command_pool(Device& device) {
   vk::CommandPoolCreateInfo create_info({}, device.graphics_queue_family_idx());
-  command_pool_ = vk::raii::CommandPool(device.vk(), create_info);
+  command_pool_ = device.vk().createCommandPool(create_info);
 }
 
-void SubmissionContext::create_command_buffers(Device const& device) {
+void SubmissionContext::create_command_buffers(Device& device) {
   vk::CommandBufferAllocateInfo alloc_info(
       *command_pool_,
       vk::CommandBufferLevel::ePrimary,
@@ -68,7 +68,7 @@ void SubmissionContext::create_command_buffers(Device const& device) {
   command_buffers_ = vk::raii::CommandBuffers(device.vk(), alloc_info);
 }
 
-void SubmissionContext::create_sync_objects(Device const& device) {
+void SubmissionContext::create_sync_objects(Device& device) {
   vk::FenceCreateInfo fence_create_info(vk::FenceCreateFlagBits::eSignaled);
   submit_fence_ = device.vk().createFence(fence_create_info);
 }

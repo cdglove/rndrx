@@ -26,7 +26,7 @@ class Device;
 
 class SubmissionContext : noncopyable {
  public:
-  explicit SubmissionContext(Device const& device)
+  explicit SubmissionContext(Device& device)
       : device_(device) {
     create_command_pool(device);
     create_command_buffers(device);
@@ -48,11 +48,11 @@ class SubmissionContext : noncopyable {
   }
 
  private:
-  void create_command_pool(Device const& device);
-  void create_command_buffers(Device const& device);
-  void create_sync_objects(Device const& device);
+  void create_command_pool(Device& device);
+  void create_command_buffers(Device& device);
+  void create_sync_objects(Device& device);
 
-  Device const& device_;
+  Device& device_;
   vk::raii::CommandPool command_pool_ = nullptr;
   vk::raii::CommandBuffers command_buffers_ = nullptr;
   vk::raii::Fence submit_fence_ = nullptr;

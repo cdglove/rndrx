@@ -12,8 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #include "allocator.hpp"
+
+#include "image.hpp"
 #include <cstddef>
-#include <vulkan/vulkan_raii.hpp>
 
 namespace rndrx::vulkan::vma {
 Allocator::Allocator(
@@ -77,42 +78,8 @@ Allocator& Allocator::operator=(Allocator&& rhs) {
   return *this;
 }
 
-Image Allocator::createImage(VkImageCreateInfo const& create_info) {
+Image Allocator::createImage(vk::ImageCreateInfo const& create_info) {
   return Image(*this, create_info);
-}
-
-Image::Image(Allocator& allocator, VkImageCreateInfo const& create_info)
-    : allocator_(&allocator) {
-  VmaAllocationCreateInfo vma_create_info = {};
-  VkImage image = nullptr;
-  vmaCreateImage(
-      allocator.vma(),
-      &create_info,
-      &vma_create_info,
-      &image,
-      &allocation_,
-      nullptr);
-  image_ = vk::raii::Image(allocator.device(), image);
-}
-
-Image::~Image() {
-  clear();
-}
-
-Image& Image::operator=(Image&& rhs) {
-  clear();
-  image_ = std::move(rhs.image_);
-  allocator_ = rhs.allocator_;
-  allocation_ = rhs.allocation_;
-  return *this;
-}
-
-void Image::clear() {
-  if(*image_) {
-    vk::Image img = image_.release();
-    VkImage vk_img = img;
-    vmaDestroyImage(allocator_->vma(), vk_img, allocation_);
-  }
 }
 
 } // namespace rndrx::vulkan::vma

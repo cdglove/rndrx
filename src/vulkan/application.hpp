@@ -40,7 +40,8 @@ class Application : noncopyable {
   Application();
   ~Application();
 
-  std::uint32_t find_graphics_queue() const;
+  std::uint32_t find_graphics_queue_family_idx() const;
+  std::uint32_t find_transfer_queue_family_idx() const;
   std::vector<char const*> get_required_instance_extensions() const;
   std::vector<char const*> get_required_device_extensions() const;
 

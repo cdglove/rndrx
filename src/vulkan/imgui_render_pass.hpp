@@ -19,6 +19,7 @@
 #include "render_target.hpp"
 #include "rndrx/noncopyable.hpp"
 #include "vma/allocator.hpp"
+#include "vma/image.hpp"
 
 class ImDrawData;
 class ImDrawList;

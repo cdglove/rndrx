@@ -50,6 +50,8 @@ set(SOURCES
     application.cpp
     composite_render_pass.cpp
     device.cpp
+    gltf/model.cpp
+    gltf/implementation.cpp
     imgui_render_pass.cpp
     load_scene.cpp
     main.cpp
@@ -58,6 +60,8 @@ set(SOURCES
     submission_context.cpp
     swapchain.cpp
     vma/allocator.cpp
+    vma/buffer.cpp
+    vma/image.cpp
     window.cpp
     ${dear_imgui_SOURCE_DIR}/backends/imgui_impl_glfw.cpp 
     ${dear_imgui_SOURCE_DIR}/backends/imgui_impl_vulkan.cpp
@@ -91,17 +95,21 @@ target_compile_definitions(rndrx-vulkan
     PUBLIC
     _CRT_SECURE_NO_DEPRECATE=1
     _CRT_SECURE_NO_WARNINGS=1
-    IMGUI_USE_STB_SPRINTF=1
-    IMGUI_DISABLE_OBSOLETE_FUNCTIONS=1
-    NOMINMAX=1
-    WIN32_LEAN_AND_MEAN=1
+    $<$<CONFIG:DEBUG>:RNDRX_ENABLE_SHADER_DEBUGGING=1>
+    $<$<CONFIG:DEBUG>:RNDRX_ENABLE_VULKAN_DEBUG_LAYER=1>
     GLFW_EXPOSE_NATIVE_WIN32=
     GLFW_INCLUDE_VULKAN=
-    GLM_FORCE_RADIANS=1
-    GLM_FORCE_DEPTH_ZERO_TO_ONE=1
     GLM_FORCE_DEFAULT_ALIGNED_GENTYPES=1
-    $<$<CONFIG:DEBUG>:RNDRX_ENABLE_VULKAN_DEBUG_LAYER=1>
-    $<$<CONFIG:DEBUG>:RNDRX_ENABLE_SHADER_DEBUGGING=1>)
+    GLM_FORCE_DEPTH_ZERO_TO_ONE=1
+    GLM_FORCE_RADIANS=1
+    IMGUI_DISABLE_OBSOLETE_FUNCTIONS=1
+    IMGUI_USE_STB_SPRINTF=1
+    NOMINMAX=1
+    STBI_MSC_SECURE_CRT=1
+    TINYGLTF_NO_STB_IMAGE_WRITE=1
+    TINYGLTF_USE_CPP14=1
+    WIN32_LEAN_AND_MEAN=1
+)
 
 target_precompile_headers(rndrx-vulkan 
     PUBLIC

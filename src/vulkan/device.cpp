@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #include "device.hpp"
+#include <vulkan/vulkan_core.h>
 #include <vulkan/vulkan.hpp>
 
 #include "application.hpp"
@@ -22,43 +23,60 @@ namespace rndrx::vulkan {
 Device::Device(Application const& app) {
   create_device(app);
   create_descriptor_pool();
-}
-
-std::uint32_t Device::find_memory_type(
-    std::uint32_t type_filter,
-    vk::MemoryPropertyFlags properties) const {
-  vk::PhysicalDeviceMemoryProperties mem_properties;
-  physical_device_.getMemoryProperties(&mem_properties);
-
-  for(std::uint32_t i = 0; i < mem_properties.memoryTypeCount; ++i) {
-    if((type_filter & (1 << i)) &&
-       (mem_properties.memoryTypes[i].propertyFlags & properties) == properties) {
-      return i;
-    }
-  }
-
-  throw_runtime_error("failed to find suitable memory type!");
-  return 0;
+  create_command_pools();
 }
 
 void Device::create_device(Application const& app) {
   physical_device_ = *app.selected_device();
 
-  float priority = 1.f;
-  gfx_queue_idx_ = app.find_graphics_queue();
-  vk::DeviceQueueCreateInfo queue_create_info({}, gfx_queue_idx_, 1, &priority);
+  queue_family_indices_.graphics = app.find_graphics_queue_family_idx();
+  queue_family_indices_.transfer = app.find_transfer_queue_family_idx();
+  std::vector<vk::DeviceQueueCreateInfo> queue_create_infos;
+
+  if(queue_family_indices_.graphics != queue_family_indices_.transfer) {
+    float const priority = 1.f;
+    queue_create_infos.push_back(
+        vk::DeviceQueueCreateInfo()
+            .setQueueFamilyIndex(queue_family_indices_.graphics)
+            .setQueueCount(1)
+            .setPQueuePriorities(&priority));
+    queue_create_infos.push_back(
+        vk::DeviceQueueCreateInfo()
+            .setQueueFamilyIndex(queue_family_indices_.transfer)
+            .setQueueCount(1)
+            .setPQueuePriorities(&priority));
+  }
+  else {
+    std::array<float, 2> priorities = {1.f, 1.f};
+    queue_create_infos.push_back(
+        vk::DeviceQueueCreateInfo()
+            .setQueueFamilyIndex(queue_family_indices_.graphics)
+            .setQueueCount(2)
+            .setQueuePriorities(priorities));
+  }
+
   auto required_extensions = app.get_required_device_extensions();
-  vk::PhysicalDeviceVulkan13Features vulkan_13_features;
-  vulkan_13_features.synchronization2 = true;
-  vulkan_13_features.dynamicRendering = true;
+
   vk::StructureChain<vk::DeviceCreateInfo, vk::PhysicalDeviceFeatures2, vk::PhysicalDeviceVulkan13Features>
-      create_info = {
-          {{}, queue_create_info, {}, required_extensions, nullptr},
-          {},
-          vulkan_13_features};
+      create_info(               //
+          vk::DeviceCreateInfo() //
+              .setQueueCreateInfos(queue_create_infos)
+              .setPEnabledExtensionNames(required_extensions),
+          vk::PhysicalDeviceFeatures2(),
+          vk::PhysicalDeviceVulkan13Features() //
+              .setSynchronization2(VK_TRUE)
+              .setDynamicRendering(VK_TRUE));
 
   device_ = app.selected_device().createDevice(create_info.get());
-  graphics_queue_ = device_.getQueue(gfx_queue_idx_, 0);
+  if(queue_family_indices_.graphics != queue_family_indices_.transfer) {
+    graphics_queue_ = device_.getQueue(queue_family_indices_.graphics, 0);
+    transfer_queue_ = device_.getQueue(queue_family_indices_.transfer, 0);
+  }
+  else {
+    graphics_queue_ = device_.getQueue(queue_family_indices_.graphics, 0);
+    transfer_queue_ = device_.getQueue(queue_family_indices_.transfer, 1);
+  }
+
   allocator_ = vma::Allocator(app.vk_instance(), device_, physical_device_);
 }
 
@@ -76,11 +94,18 @@ void Device::create_descriptor_pool() {
        {vk::DescriptorType::eStorageBufferDynamic, 1000},
        {vk::DescriptorType::eInputAttachment, 1000}}};
 
-  vk::DescriptorPoolCreateInfo create_info;
-  create_info.setFlags(vk::DescriptorPoolCreateFlagBits::eFreeDescriptorSet)
-      .setMaxSets(1000)
-      .setPoolSizes(pool_sizes);
-  descriptor_pool_ = device_.createDescriptorPool(create_info);
+  descriptor_pool_ = device_.createDescriptorPool( //
+      vk::DescriptorPoolCreateInfo()
+          .setFlags(vk::DescriptorPoolCreateFlagBits::eFreeDescriptorSet)
+          .setMaxSets(1000)
+          .setPoolSizes(pool_sizes));
+}
+
+void Device::create_command_pools() {
+  graphics_command_pool_ = device_.createCommandPool(
+      vk::CommandPoolCreateInfo().setQueueFamilyIndex(graphics_queue_family_idx()));
+  transfer_command_pool_ = device_.createCommandPool(
+      vk::CommandPoolCreateInfo().setQueueFamilyIndex(transfer_queue_family_idx()));
 }
 
 } // namespace rndrx::vulkan
