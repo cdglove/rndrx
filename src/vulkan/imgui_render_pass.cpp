@@ -143,40 +143,34 @@ void ImGuiRenderPass::create_descriptor_pool(Device const& device) {
 }
 
 void ImGuiRenderPass::create_image(Device& device, Window const& window) {
-  vk::ImageCreateInfo image_create_info;
-  image_create_info //
-      .setImageType(vk::ImageType::e2D)
-      .setFormat(vk::Format::eR8G8B8A8Unorm)
-      .setExtent(vk::Extent3D(window.width(), window.height(), 1))
-      .setArrayLayers(1)
-      .setMipLevels(1)
-      .setSamples(vk::SampleCountFlagBits::e1)
-      .setTiling(vk::ImageTiling::eOptimal)
-      .setUsage(
-          vk::ImageUsageFlagBits::eColorAttachment |
-          vk::ImageUsageFlagBits::eSampled);
+  image_ = device.allocator().create_image(
+      vk::ImageCreateInfo()
+          .setImageType(vk::ImageType::e2D)
+          .setFormat(vk::Format::eR8G8B8A8Unorm)
+          .setExtent(vk::Extent3D(window.width(), window.height(), 1))
+          .setArrayLayers(1)
+          .setMipLevels(1)
+          .setSamples(vk::SampleCountFlagBits::e1)
+          .setTiling(vk::ImageTiling::eOptimal)
+          .setUsage(
+              vk::ImageUsageFlagBits::eColorAttachment |
+              vk::ImageUsageFlagBits::eSampled));
 
-  image_ = device.allocator().createImage(image_create_info);
+  image_view_ = device.vk().createImageView(
+      vk::ImageViewCreateInfo()
+          .setImage(*image_.vk())
+          .setViewType(vk::ImageViewType::e2D)
+          .setFormat(vk::Format::eR8G8B8A8Unorm)
+          .setSubresourceRange(
+              vk::ImageSubresourceRange(vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1)));
 
-  vk::ImageViewCreateInfo image_view_create_info;
-  image_view_create_info //
-      .setImage(*image_.vk())
-      .setViewType(vk::ImageViewType::e2D)
-      .setFormat(vk::Format::eR8G8B8A8Unorm)
-      .setSubresourceRange(
-          vk::ImageSubresourceRange(vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1));
-
-  image_view_ = device.vk().createImageView(image_view_create_info);
-
-  vk::FramebufferCreateInfo framebuffer_create_info;
-  framebuffer_create_info //
-      .setRenderPass(*render_pass_)
-      .setAttachments(*image_view_)
-      .setWidth(window.width())
-      .setHeight(window.height())
-      .setLayers(1);
-
-  framebuffer_ = device.vk().createFramebuffer(framebuffer_create_info);
+  framebuffer_ = device.vk().createFramebuffer( //
+      vk::FramebufferCreateInfo()
+          .setRenderPass(*render_pass_)
+          .setAttachments(*image_view_)
+          .setWidth(window.width())
+          .setHeight(window.height())
+          .setLayers(1));
 }
 
 void ImGuiRenderPass::create_render_pass(Device const& device) {

@@ -14,17 +14,22 @@
 #ifndef RNDRX_VULKAN_GLTF_MODEL_HPP_
 #define RNDRX_VULKAN_GLTF_MODEL_HPP_
 #include <vulkan/vulkan_enums.hpp>
+#include <vulkan/vulkan_handles.hpp>
+#include <vulkan/vulkan_structs.hpp>
+#include "glm/ext/matrix_float4x4.hpp"
 #pragma once
 
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
 #include <glm/gtx/string_cast.hpp>
+#include <optional>
+#include "../vma/buffer.hpp"
 #include "../vma/image.hpp"
 #include "rndrx/noncopyable.hpp"
 
 // Changing this value also requires updating the skinning shaders.
-constexpr std::uint32_t kMaxJoints = 128;
+constexpr std::size_t kMaxNumJoints = 128;
 
 namespace rndrx::vulkan {
 class Device;
@@ -32,7 +37,9 @@ class Device;
 
 namespace tinygltf {
 class Image;
-}
+class Model;
+class Node;
+} // namespace tinygltf
 
 namespace rndrx::vulkan::gltf {
 
@@ -61,13 +68,12 @@ struct TextureSampler {
 class Texture : noncopyable {
  public:
   Texture() = default;
-  Texture(Device& device, tinygltf::Image const& image_data, Texture const& sampler);
+  Texture(Device& device, tinygltf::Image const& image_data, TextureSampler const& sampler);
   void update_descriptor();
 
  private:
-  void generate_mip_maps(vk::raii::CommandBuffer& cmd_buf);
+  void generate_mip_maps(Device& device, vk::raii::CommandBuffer& cmd_buf);
 
-  Device* device_ = nullptr;
   vma::Image image_ = nullptr;
   vk::raii::ImageView image_view_ = nullptr;
   vk::raii::ImageView view_ = nullptr;
@@ -87,21 +93,21 @@ struct Material {
   float alpha_cutoff = 1.f;
   float metallic_factor = 1.f;
   float roughness_factor = 1.f;
-  glm::vec4 base_color_factor = glm::vec4(1.f);
+  glm::vec4 base_colour_factor = glm::vec4(1.f);
   glm::vec4 emissive_factor = glm::vec4(1.f);
-  Texture const* base_color_texture = nullptr;
+  Texture const* base_colour_texture = nullptr;
   Texture const* metallic_roughness_texture = nullptr;
   Texture const* normal_texture = nullptr;
   Texture const* occlusion_texture = nullptr;
   Texture const* emissive_texture = nullptr;
   bool double_sided = false;
   struct TexCoordSets {
-    uint8_t base_color = 0;
-    uint8_t metallic_roughness = 0;
-    uint8_t specular_glossiness = 0;
-    uint8_t normal = 0;
-    uint8_t occlusion = 0;
-    uint8_t emissive = 0;
+    std::uint8_t base_colour = 0;
+    std::uint8_t metallic_roughness = 0;
+    std::uint8_t specular_glossiness = 0;
+    std::uint8_t normal = 0;
+    std::uint8_t occlusion = 0;
+    std::uint8_t emissive = 0;
   } tex_coord_sets;
   struct Extension {
     Texture const* specular_glossiness_texture = nullptr;
@@ -116,49 +122,191 @@ struct Material {
   VkDescriptorSet descriptor_set = VK_NULL_HANDLE;
 };
 
-struct Primitive {
+class Primitive : noncopyable {
+ public:
   Primitive(
       std::uint32_t first_index,
       std::uint32_t index_count,
       std::uint32_t vertex_count,
-      Material& material);
+      Material const& material);
 
   void set_bounding_box(glm::vec3 min, glm::vec3 max);
 
-  std::uint32_t first_index;
-  std::uint32_t index_count;
-  std::uint32_t vertex_count;
-  Material& material;
-  bool has_indices;
-  BoundingBox bb;
+  std::uint32_t first_index() const {
+    return first_index_;
+  }
+  std::uint32_t index_count() const {
+    return index_count_;
+  }
+  std::uint32_t vertex_count() const {
+    return vertex_count_;
+  }
+  Material const& material() const {
+    return material_;
+  }
+  bool has_indices() const {
+    return has_indices_;
+  }
+  BoundingBox bounding_box() const {
+    return bb_;
+  }
+
+ private:
+  std::uint32_t first_index_;
+  std::uint32_t index_count_;
+  std::uint32_t vertex_count_;
+  Material const& material_;
+  bool has_indices_;
+  BoundingBox bb_;
 };
 
-struct Mesh {
+struct Mesh : noncopyable {
   Mesh(Device& device, glm::mat4 matrix);
   ~Mesh();
   void set_bounding_box(glm::vec3 min, glm::vec3 max);
-
-  Device* device;
-  std::vector<Primitive*> primitives;
-  BoundingBox bb;
-  BoundingBox aabb;
-
-  struct UniformBuffer {
-    VkBuffer buffer;
-    VkDeviceMemory memory;
-    VkDescriptorBufferInfo descriptor;
-    VkDescriptorSet descriptor_set;
-    void* mapped;
-  } uniform_buffer;
+  void set_world_matrix(glm::mat4 world);
+  void set_joint_matrix(std::size_t idx, glm::mat4 matrix);
+  void set_num_joints(std::size_t count);
 
   struct UniformBlock {
-    glm::mat4 matrix;
-    // cglover-todo(2023-01-22): Optimise this out. Every mush is using way more memory than
-    // necessary.
-    std::array<glm::mat4, kMaxJoints> joints;
-    float joint_count{0};
-  } uniform_block;
+    glm::mat4 world_matrix;
+    // cglover-todo(2023-01-22): Optimise this out. Every mesh is using way more
+    // memory than necessary.
+    std::array<glm::mat4, kMaxNumJoints> joints;
+    // Float because it aligns with the shader?
+    float num_joints = 0;
+  };
+
+ private:
+  UniformBlock* mapped_memory();
+  vma::Buffer buffer_ = nullptr;
+  vk::DescriptorBufferInfo descriptor_info_;
+  // UniformBlock uniform_block_;
+  std::vector<Primitive> primitives_;
+  BoundingBox bb_;
+  BoundingBox aabb_;
+  // vk::DescriptorSet descriptor_set_;
 };
+
+class Node;
+class Skin : noncopyable {
+ public:
+  std::string name;
+  Node* skeleton_root = nullptr;
+  std::vector<glm::mat4> inverse_bind_matrices;
+  std::vector<Node const*> joints;
+};
+
+class Node : noncopyable {
+ public:
+  Node(Node const* parent);
+  glm::mat4 local_matrix() const;
+  glm::mat4 resolve_transform_hierarchy() const;
+  void update();
+
+  Node const* parent;
+  std::uint32_t index;
+  std::vector<Node> children;
+  glm::mat4 matrix;
+  std::string name;
+  std::optional<Mesh> mesh;
+  std::optional<Skin> skin;
+  std::int32_t skin_index = -1;
+  glm::vec3 translation{};
+  glm::vec3 scale{1.f};
+  glm::quat rotation{};
+  BoundingBox bvh;
+  BoundingBox aabb;
+};
+
+struct AnimationChannel {
+  enum class PathType { Translation, Rotation, Scale };
+  PathType path;
+  Node* node;
+  uint32_t samplerIndex;
+};
+
+struct AnimationSampler {
+  enum class InterpolationType { Linear, Step, CubicSpline };
+  InterpolationType interpolation;
+  std::vector<float> inputs;
+  std::vector<glm::vec4> outputsVec4;
+};
+
+struct Animation {
+  std::string name;
+  std::vector<AnimationSampler> samplers;
+  std::vector<AnimationChannel> channels;
+  float start = std::numeric_limits<float>::max();
+  float end = std::numeric_limits<float>::min();
+};
+
+class Model {
+ public:
+  Model(Device& device, tinygltf::Model const& source);
+  struct Vertex {
+    glm::vec3 pos;
+    glm::vec3 normal;
+    glm::vec2 uv0;
+    glm::vec2 uv1;
+    glm::vec4 joint0;
+    glm::vec4 weight0;
+    glm::vec4 colour;
+  };
+
+  struct Dimensions {
+    glm::vec3 min = glm::vec3(std::numeric_limits<float>::max());
+    glm::vec3 max = glm::vec3(std::numeric_limits<float>::min());
+  };
+
+  struct LoaderInfo {
+    std::uint32_t* index_buffer = nullptr;
+    Vertex* vertex_buffer = nullptr;
+    std::size_t index_pos = 0;
+    std::size_t vertex_pos = 0;
+  };
+
+  void get_node_props(
+      tinygltf::Node const& node,
+      tinygltf::Model const& model,
+      std::size_t& vertex_count,
+      std::size_t& index_count);
+  void draw_node(Node* node, vk::CommandBuffer command_buffer);
+  void draw(vk::CommandBuffer command_buffer);
+  void calculate_bounding_box(Node* node, Node* parent);
+  void get_scene_dimensions();
+  void update_animation(std::uint32_t index, float time);
+  Node* find_node(Node* parent, std::uint32_t index);
+  Node* node_from_index(std::uint32_t index);
+
+  vma::Buffer vertices = nullptr;
+  vma::Buffer indices = nullptr;
+  std::vector<Node> nodes;
+  std::vector<Node> linear_nodes;
+  std::vector<Skin> skins;
+  std::vector<Texture> textures;
+  std::vector<TextureSampler> texture_samplers;
+  std::vector<Material> materials;
+  std::vector<Animation> animations;
+  std::vector<std::string> extensions;
+  glm::mat4 aabb;
+
+ private:
+  void create_texture_samplers(tinygltf::Model const& source);
+  void create_textures(Device& device, tinygltf::Model const& source);
+  void create_materials(tinygltf::Model const& source);
+  void create_animations(Device& device, tinygltf::Model const& sourcel);
+  void create_skins(Device& device, tinygltf::Model const& source);
+  void create_node(
+      tinygltf::Model const& source,
+      Node const* parent,
+      tinygltf::Node const& node,
+      std::uint32_t node_index,
+      LoaderInfo& loader_info,
+      float globalscale);
+};
+
+Model load_model_from_file(Device& device, std::string_view path);
 
 } // namespace rndrx::vulkan::gltf
 

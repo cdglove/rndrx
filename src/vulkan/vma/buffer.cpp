@@ -54,4 +54,8 @@ void Buffer::clear() {
   }
 }
 
+Buffer Allocator::create_buffer(vk::BufferCreateInfo const& create_info) {
+  return Buffer(*this, create_info);
+}
+
 } // namespace rndrx::vulkan::vma

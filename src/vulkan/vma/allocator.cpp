@@ -14,6 +14,7 @@
 #include "allocator.hpp"
 
 #include "image.hpp"
+#include "buffer.hpp"
 #include <cstddef>
 
 namespace rndrx::vulkan::vma {
@@ -76,10 +77,6 @@ Allocator& Allocator::operator=(Allocator&& rhs) {
   rhs.allocator_ = nullptr;
   device_ = rhs.device_;
   return *this;
-}
-
-Image Allocator::createImage(vk::ImageCreateInfo const& create_info) {
-  return Image(*this, create_info);
 }
 
 } // namespace rndrx::vulkan::vma

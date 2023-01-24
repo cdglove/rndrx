@@ -52,4 +52,9 @@ void Image::clear() {
   }
 }
 
+Image Allocator::create_image(vk::ImageCreateInfo const& create_info) {
+  return Image(*this, create_info);
+}
+
+
 } // namespace rndrx::vulkan::vma

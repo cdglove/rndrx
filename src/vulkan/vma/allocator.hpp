@@ -20,6 +20,7 @@
 #include <vulkan/vulkan.hpp>
 #include <vulkan/vulkan_handles.hpp>
 #include <vulkan/vulkan_raii.hpp>
+#include <vulkan/vulkan_structs.hpp>
 #include "rndrx/noncopyable.hpp"
 #include "vk_mem_alloc.h"
 
@@ -36,6 +37,7 @@ class Device;
 namespace rndrx::vulkan::vma {
 
 class Image;
+class Buffer;
 
 class Allocator : noncopyable {
  public:
@@ -57,7 +59,8 @@ class Allocator : noncopyable {
     return allocator_;
   }
 
-  Image createImage(vk::ImageCreateInfo const& create_info);
+  Image create_image(vk::ImageCreateInfo const& create_info);
+  Buffer create_buffer(vk::BufferCreateInfo const& create_info);
 
  private:
   vk::raii::Device const* device_ = nullptr;
