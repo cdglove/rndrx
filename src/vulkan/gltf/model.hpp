@@ -162,7 +162,8 @@ class Primitive : noncopyable {
 
 struct Mesh : noncopyable {
   Mesh(Device& device, glm::mat4 matrix);
-  ~Mesh();
+  RNDRX_DEFAULT_MOVABLE(Mesh);
+
   void set_bounding_box(glm::vec3 min, glm::vec3 max);
   void set_world_matrix(glm::mat4 world);
   void set_joint_matrix(std::size_t idx, glm::mat4 matrix);
@@ -192,7 +193,7 @@ class Node;
 class Skin : noncopyable {
  public:
   std::string name;
-  Node* skeleton_root = nullptr;
+  Node const* skeleton_root = nullptr;
   std::vector<glm::mat4> inverse_bind_matrices;
   std::vector<Node const*> joints;
 };
@@ -200,6 +201,8 @@ class Skin : noncopyable {
 class Node : noncopyable {
  public:
   Node(Node const* parent);
+  RNDRX_DEFAULT_MOVABLE(Node);
+
   glm::mat4 local_matrix() const;
   glm::mat4 resolve_transform_hierarchy() const;
   void update();
@@ -222,7 +225,7 @@ class Node : noncopyable {
 struct AnimationChannel {
   enum class PathType { Translation, Rotation, Scale };
   PathType path;
-  Node* node;
+  Node const* node;
   uint32_t samplerIndex;
 };
 
@@ -260,29 +263,22 @@ class Model {
   };
 
   struct LoaderInfo {
-    std::uint32_t* index_buffer = nullptr;
-    Vertex* vertex_buffer = nullptr;
+    std::vector<std::uint32_t> index_buffer;
+    std::vector<Vertex> vertex_buffer;
     std::size_t index_pos = 0;
     std::size_t vertex_pos = 0;
   };
 
-  void get_node_props(
-      tinygltf::Node const& node,
-      tinygltf::Model const& model,
-      std::size_t& vertex_count,
-      std::size_t& index_count);
   void draw_node(Node* node, vk::CommandBuffer command_buffer);
   void draw(vk::CommandBuffer command_buffer);
   void calculate_bounding_box(Node* node, Node* parent);
   void get_scene_dimensions();
   void update_animation(std::uint32_t index, float time);
-  Node* find_node(Node* parent, std::uint32_t index);
-  Node* node_from_index(std::uint32_t index);
 
   vma::Buffer vertices = nullptr;
   vma::Buffer indices = nullptr;
   std::vector<Node> nodes;
-  std::vector<Node> linear_nodes;
+  std::vector<Node*> linear_nodes;
   std::vector<Skin> skins;
   std::vector<Texture> textures;
   std::vector<TextureSampler> texture_samplers;
@@ -295,15 +291,16 @@ class Model {
   void create_texture_samplers(tinygltf::Model const& source);
   void create_textures(Device& device, tinygltf::Model const& source);
   void create_materials(tinygltf::Model const& source);
-  void create_animations(Device& device, tinygltf::Model const& sourcel);
-  void create_skins(Device& device, tinygltf::Model const& source);
-  void create_node(
+  void create_animations(tinygltf::Model const& source);
+  void create_skins(tinygltf::Model const& source);
+  void create_nodes(Device& device, tinygltf::Model const& source);
+  void create_node_recursive(
+      Device& device,
       tinygltf::Model const& source,
-      Node const* parent,
       tinygltf::Node const& node,
+      Node const* parent,
       std::uint32_t node_index,
-      LoaderInfo& loader_info,
-      float globalscale);
+      LoaderInfo& loader_info);
 };
 
 Model load_model_from_file(Device& device, std::string_view path);
