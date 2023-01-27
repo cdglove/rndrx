@@ -168,6 +168,7 @@ struct Mesh : noncopyable {
   void set_world_matrix(glm::mat4 world);
   void set_joint_matrix(std::size_t idx, glm::mat4 matrix);
   void set_num_joints(std::size_t count);
+  void add_primitive(Primitive primitive);
 
   struct UniformBlock {
     glm::mat4 world_matrix;
@@ -265,8 +266,8 @@ class Model {
   struct LoaderInfo {
     std::vector<std::uint32_t> index_buffer;
     std::vector<Vertex> vertex_buffer;
-    std::size_t index_pos = 0;
-    std::size_t vertex_pos = 0;
+    std::uint32_t index_position = 0;
+    std::uint32_t vertex_position = 0;
   };
 
   void draw_node(Node* node, vk::CommandBuffer command_buffer);
@@ -298,7 +299,7 @@ class Model {
       Device& device,
       tinygltf::Model const& source,
       tinygltf::Node const& node,
-      Node const* parent,
+      Node* parent,
       std::uint32_t node_index,
       LoaderInfo& loader_info);
 };
