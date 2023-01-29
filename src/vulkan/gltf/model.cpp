@@ -19,6 +19,7 @@
 #include <ranges>
 #include <vulkan/vulkan.hpp>
 #include <vulkan/vulkan_enums.hpp>
+#include <vulkan/vulkan_raii.hpp>
 #include <vulkan/vulkan_structs.hpp>
 #include "glm/gtx/dual_quaternion.hpp"
 #include "rndrx/assert.hpp"
@@ -276,7 +277,7 @@ void Node::update() {
 }
 
 Model::Model(Device& device, tinygltf::Model const& source) {
-  create_texture_samplers(source);
+  create_texture_samplers(device, source);
   create_textures(device, source);
   create_materials(source);
 
@@ -291,31 +292,66 @@ Model::Model(Device& device, tinygltf::Model const& source) {
   // getSceneDimensions();
 }
 
-void Model::create_texture_samplers(tinygltf::Model const& source) {
+void Model::create_texture_samplers(Device& device, tinygltf::Model const& source) {
   for(auto&& gltf_sampler : source.samplers) {
-    TextureSampler sampler;
-    sampler.min_filter = to_vk_filter_mode(gltf_sampler.minFilter);
-    sampler.mag_filter = to_vk_filter_mode(gltf_sampler.magFilter);
-    sampler.address_mode_u = to_vk_sampler_address(gltf_sampler.wrapS);
-    sampler.address_mode_v = to_vk_sampler_address(gltf_sampler.wrapT);
-    sampler.address_mode_w = sampler.address_mode_v;
-    texture_samplers.push_back(sampler);
+    auto min_filter = to_vk_filter_mode(gltf_sampler.minFilter);
+    auto mag_filter = to_vk_filter_mode(gltf_sampler.magFilter);
+    auto address_mode_u = to_vk_sampler_address(gltf_sampler.wrapS);
+    auto address_mode_v = to_vk_sampler_address(gltf_sampler.wrapT);
+    auto address_mode_w = address_mode_v;
+
+    vk::raii::Sampler sampler = device.vk().createSampler(
+        vk::SamplerCreateInfo()
+            .setMagFilter(mag_filter)
+            .setMinFilter(min_filter)
+            .setMipmapMode(vk::SamplerMipmapMode::eLinear)
+            .setAddressModeU(address_mode_u)
+            .setAddressModeV(address_mode_v)
+            .setAddressModeW(address_mode_w)
+            .setCompareOp(vk::CompareOp::eNever)
+            .setBorderColor(vk::BorderColor::eFloatOpaqueWhite)
+            .setMinLod(0.f)
+            .setMaxLod(VK_LOD_CLAMP_NONE)
+            .setMaxAnisotropy(8.0f)
+            .setAnisotropyEnable(VK_TRUE));
+
+    texture_samplers.push_back(std::move(sampler));
   }
+
+  // Create one more for non-specificed samplers.
+  auto min_filter = to_vk_filter_mode(kTinyGltfNotSpecified);
+  auto mag_filter = to_vk_filter_mode(kTinyGltfNotSpecified);
+  auto address_mode_u = to_vk_sampler_address(kTinyGltfNotSpecified);
+  auto address_mode_v = to_vk_sampler_address(kTinyGltfNotSpecified);
+  auto address_mode_w = address_mode_v;
+
+  vk::raii::Sampler sampler = device.vk().createSampler(
+      vk::SamplerCreateInfo()
+          .setMagFilter(mag_filter)
+          .setMinFilter(min_filter)
+          .setMipmapMode(vk::SamplerMipmapMode::eLinear)
+          .setAddressModeU(address_mode_u)
+          .setAddressModeV(address_mode_v)
+          .setAddressModeW(address_mode_w)
+          .setCompareOp(vk::CompareOp::eNever)
+          .setBorderColor(vk::BorderColor::eFloatOpaqueWhite)
+          .setMinLod(0.f)
+          .setMaxLod(VK_LOD_CLAMP_NONE)
+          .setMaxAnisotropy(8.0f)
+          .setAnisotropyEnable(VK_TRUE));
+
+  texture_samplers.push_back(std::move(sampler));
 }
 
 void Model::create_textures(Device& device, tinygltf::Model const& source) {
   for(auto&& gltf_texture : source.textures) {
     tinygltf::Image const& image = source.images[gltf_texture.source];
-    TextureSampler sampler;
+    vk::Sampler sampler = nullptr;
     if(gltf_texture.sampler == kTinyGltfNotSpecified) {
-      sampler.min_filter = to_vk_filter_mode(kTinyGltfNotSpecified);
-      sampler.mag_filter = to_vk_filter_mode(kTinyGltfNotSpecified);
-      sampler.address_mode_u = to_vk_sampler_address(kTinyGltfNotSpecified);
-      sampler.address_mode_v = to_vk_sampler_address(kTinyGltfNotSpecified);
-      sampler.address_mode_w = to_vk_sampler_address(kTinyGltfNotSpecified);
+      sampler = *texture_samplers.back();
     }
     else {
-      sampler = texture_samplers[gltf_texture.sampler];
+      sampler = *texture_samplers[gltf_texture.sampler];
     }
 
     TextureCreateInfo create_info;

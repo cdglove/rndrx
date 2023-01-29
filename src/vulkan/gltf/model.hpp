@@ -13,6 +13,7 @@
 // limitations under the License.
 #ifndef RNDRX_VULKAN_GLTF_MODEL_HPP_
 #define RNDRX_VULKAN_GLTF_MODEL_HPP_
+#include <vulkan/vulkan_raii.hpp>
 #pragma once
 
 #include <glm/glm.hpp>
@@ -22,9 +23,9 @@
 #include <optional>
 #include <vulkan/vulkan.hpp>
 #include "rndrx/noncopyable.hpp"
+#include "rndrx/vulkan/texture.hpp"
 #include "rndrx/vulkan/vma/buffer.hpp"
 #include "rndrx/vulkan/vma/image.hpp"
-#include "rndrx/vulkan/texture.hpp"
 
 // Changing this value also requires updating the skinning shaders.
 constexpr std::size_t kMaxNumJoints = 128;
@@ -32,7 +33,7 @@ constexpr std::size_t kMaxNumJoints = 128;
 namespace rndrx::vulkan {
 class Device;
 class Texture;
-}
+} // namespace rndrx::vulkan
 
 namespace tinygltf {
 class Image;
@@ -251,14 +252,14 @@ class Model {
   std::vector<Node*> linear_nodes;
   std::vector<Skin> skins;
   std::vector<Texture> textures;
-  std::vector<TextureSampler> texture_samplers;
+  std::vector<vk::raii::Sampler> texture_samplers;
   std::vector<Material> materials;
   std::vector<Animation> animations;
   std::vector<std::string> extensions;
   glm::mat4 aabb;
 
  private:
-  void create_texture_samplers(tinygltf::Model const& source);
+  void create_texture_samplers(Device& device, tinygltf::Model const& source);
   void create_textures(Device& device, tinygltf::Model const& source);
   void create_materials(tinygltf::Model const& source);
   void create_animations(tinygltf::Model const& source);

@@ -20,25 +20,13 @@
 #include "rndrx/vulkan/vma/image.hpp"
 #include <span>
 
-namespace tinygltf {
-class Image;
-} // namespace tinygltf
-
 namespace rndrx::vulkan {
 class Device;
-
-struct TextureSampler {
-  vk::Filter mag_filter;
-  vk::Filter min_filter;
-  vk::SamplerAddressMode address_mode_u;
-  vk::SamplerAddressMode address_mode_v;
-  vk::SamplerAddressMode address_mode_w;
-};
 
 struct TextureCreateInfo {
   std::uint32_t width = 0;
   std::uint32_t height = 0;
-  TextureSampler sampler;
+  vk::Sampler sampler;
   std::span<unsigned char const> image_data;
   std::uint32_t component_count = 0;
 };
@@ -54,8 +42,7 @@ class Texture : noncopyable {
 
   vma::Image image_ = nullptr;
   vk::raii::ImageView image_view_ = nullptr;
-  // cglover-todo: should be a reference to sampler.
-  vk::raii::Sampler sampler_ = nullptr;
+  vk::Sampler sampler_ = nullptr;
   vk::ImageLayout image_layout_;
   vk::Format format_;
   vk::DescriptorImageInfo descriptor_;

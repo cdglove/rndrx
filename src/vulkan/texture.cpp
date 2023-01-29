@@ -17,7 +17,6 @@
 #include "rndrx/throw_exception.hpp"
 #include "rndrx/vulkan/device.hpp"
 #include "rndrx/vulkan/vma/buffer.hpp"
-#include "tiny_gltf.h"
 
 namespace {
 std::uint32_t compute_mip_level_count(std::uint32_t width, std::uint32_t height) {
@@ -33,6 +32,7 @@ Texture::Texture(Device& device, TextureCreateInfo const& create_info) {
   width_ = create_info.width;
   height_ = create_info.height;
   mip_count_ = compute_mip_level_count(width_, height_);
+  sampler_ = create_info.sampler;
 
   auto const whole_image_resource = //
       vk::ImageSubresourceRange()
@@ -64,21 +64,6 @@ Texture::Texture(Device& device, TextureCreateInfo const& create_info) {
           .setViewType(vk::ImageViewType::e2D)
           .setFormat(format_)
           .setSubresourceRange(whole_image_resource));
-
-  sampler_ = device.vk().createSampler(
-      vk::SamplerCreateInfo()
-          .setMagFilter(create_info.sampler.mag_filter)
-          .setMinFilter(create_info.sampler.min_filter)
-          .setMipmapMode(vk::SamplerMipmapMode::eLinear)
-          .setAddressModeU(create_info.sampler.address_mode_u)
-          .setAddressModeV(create_info.sampler.address_mode_v)
-          .setAddressModeW(create_info.sampler.address_mode_w)
-          .setCompareOp(vk::CompareOp::eNever)
-          .setBorderColor(vk::BorderColor::eFloatOpaqueWhite)
-          .setMinLod(0.f)
-          .setMaxLod(VK_LOD_CLAMP_NONE)
-          .setMaxAnisotropy(8.0f)
-          .setAnisotropyEnable(VK_TRUE));
 
   vma::Buffer staging_buffer = device.allocator().create_buffer(
       vk::BufferCreateInfo()
@@ -296,7 +281,7 @@ void Texture::generate_mip_maps(Device& device, vk::raii::CommandBuffer& cmd_buf
 }
 
 void Texture::update_descriptor() {
-  descriptor_.sampler = *sampler_;
+  descriptor_.sampler = sampler_;
   descriptor_.imageView = *image_view_;
   descriptor_.imageLayout = image_layout_;
 }
