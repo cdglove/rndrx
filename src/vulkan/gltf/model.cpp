@@ -25,6 +25,7 @@
 #include "rndrx/log.hpp"
 #include "rndrx/throw_exception.hpp"
 #include "rndrx/vulkan/device.hpp"
+#include "rndrx/vulkan/texture.hpp"
 #include "rndrx/vulkan/vma/buffer.hpp"
 #include "tiny_gltf.h"
 
@@ -37,10 +38,6 @@ constexpr int kTinyGltfNotSpecified = -1;
 #endif
 
 namespace {
-std::uint32_t compute_mip_level_count(std::uint32_t width, std::uint32_t height) {
-  auto count = std::log2(std::max(width, height));
-  return std::round(count);
-}
 
 vk::SamplerAddressMode to_vk_sampler_address(std::int32_t gltf_wrap_mode) {
   switch(gltf_wrap_mode) {
@@ -167,318 +164,6 @@ BoundingBox BoundingBox::get_aabb(glm::mat4 const& aligned_to) const {
   aabb_max += glm::max(v0, v1);
 
   return {aabb_min, aabb_max};
-}
-
-Texture::Texture(
-    Device& device,
-    tinygltf::Image const& image_data,
-    TextureSampler const& sampler) {
-  // cglover-todo: Support other formats.
-  format_ = vk::Format::eB8G8R8A8Unorm;
-  width_ = image_data.width;
-  height_ = image_data.height;
-  mip_count_ = compute_mip_level_count(width_, height_);
-
-  vma::Buffer staging_buffer = device.allocator().create_buffer(
-      vk::BufferCreateInfo()
-          .setSize(image_data.width * image_data.height * 4)
-          .setUsage(vk::BufferUsageFlagBits::eTransferSrc));
-
-  if(image_data.component != 4) {
-    std::uint32_t* texel_data = static_cast<std::uint32_t*>(
-        staging_buffer.mapped_data());
-    int component_idx = 0;
-    for(int i = 0; i < image_data.height; ++i) {
-      for(int j = 0; j < image_data.width; ++j) {
-        std::uint32_t texel = 0;
-        for(int k = 0; k < image_data.component; ++k) {
-          texel <<= 8;
-          texel |= image_data.image[component_idx++];
-        }
-        *texel_data++ = texel;
-      }
-    }
-  }
-  else {
-    std::memcpy(
-        staging_buffer.mapped_data(),
-        image_data.image.data(),
-        image_data.image.size());
-  }
-
-  auto const whole_image_resource = //
-      vk::ImageSubresourceRange()
-          .setAspectMask(vk::ImageAspectFlagBits::eColor)
-          .setBaseMipLevel(0)
-          .setLevelCount(1)
-          .setBaseArrayLayer(0)
-          .setLayerCount(1);
-
-  image_ = device.allocator().create_image( //
-      vk::ImageCreateInfo()
-          .setImageType(vk::ImageType::e2D)
-          .setFormat(format_)
-          .setMipLevels(mip_count_)
-          .setArrayLayers(1)
-          .setSamples(vk::SampleCountFlagBits::e1)
-          .setTiling(vk::ImageTiling::eOptimal)
-          .setUsage(
-              vk::ImageUsageFlagBits::eTransferSrc |
-              vk::ImageUsageFlagBits::eTransferDst | //
-              vk::ImageUsageFlagBits::eSampled)
-          .setSharingMode(vk::SharingMode::eExclusive)
-          .setInitialLayout(vk::ImageLayout::eUndefined)
-          .setExtent(vk::Extent3D(width_, height_, 1)));
-
-  image_view_ = device.vk().createImageView(
-      vk::ImageViewCreateInfo()
-          .setImage(*image_.vk())
-          .setViewType(vk::ImageViewType::e2D)
-          .setFormat(format_)
-          .setSubresourceRange(whole_image_resource));
-
-  sampler_ = device.vk().createSampler(
-      vk::SamplerCreateInfo()
-          .setMagFilter(sampler.mag_filter)
-          .setMinFilter(sampler.min_filter)
-          .setMipmapMode(vk::SamplerMipmapMode::eLinear)
-          .setAddressModeU(sampler.address_mode_u)
-          .setAddressModeV(sampler.address_mode_v)
-          .setAddressModeW(sampler.address_mode_w)
-          .setCompareOp(vk::CompareOp::eNever)
-          .setBorderColor(vk::BorderColor::eFloatOpaqueWhite)
-          .setMaxAnisotropy(1.f)
-          .setMaxLod(mip_count_)
-          .setMaxAnisotropy(8.0f)
-          .setAnisotropyEnable(VK_TRUE));
-
-  vk::raii::CommandBuffer copy_cmd_buf = device.alloc_transfer_command_buffer();
-  copy_cmd_buf.begin( //
-      vk::CommandBufferBeginInfo().setFlags(
-          vk::CommandBufferUsageFlagBits::eOneTimeSubmit));
-
-  copy_cmd_buf.pipelineBarrier(
-      vk::PipelineStageFlagBits::eAllCommands,
-      vk::PipelineStageFlagBits::eAllCommands,
-      {},
-      nullptr,
-      nullptr,
-      vk::ImageMemoryBarrier()
-          .setSrcQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
-          .setDstQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
-          .setSubresourceRange(whole_image_resource)
-          .setOldLayout(vk::ImageLayout::eUndefined)
-          .setNewLayout(vk::ImageLayout::eTransferDstOptimal)
-          .setImage(*image_.vk())
-          .setSrcAccessMask(vk::AccessFlagBits::eNone)
-          .setDstAccessMask(vk::AccessFlagBits::eTransferWrite));
-
-  copy_cmd_buf.copyBufferToImage2(
-      vk::CopyBufferToImageInfo2()
-          .setDstImage(*image_.vk())
-          .setDstImageLayout(vk::ImageLayout::eTransferDstOptimal)
-          .setSrcBuffer(*staging_buffer.vk())
-          .setRegions( //
-              vk::BufferImageCopy2()
-                  .setImageExtent( //
-                      vk::Extent3D()
-                          .setWidth(image_data.width)
-                          .setHeight(image_data.height)
-                          .setDepth(1))
-                  .setImageSubresource(
-                      vk::ImageSubresourceLayers()
-                          .setAspectMask(vk::ImageAspectFlagBits::eColor)
-                          .setBaseArrayLayer(0)
-                          .setLayerCount(1)
-                          .setMipLevel(0))));
-
-  // copy_cmd_buf.pipelineBarrier(
-  //     vk::PipelineStageFlagBits::eTransfer,
-  //     vk::PipelineStageFlagBits::eTransfer,
-  //     {},
-  //     nullptr,
-  //     nullptr,
-  //     vk::ImageMemoryBarrier()
-  //         .setSrcQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
-  //         .setDstQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
-  //         .setSubresourceRange(whole_image_resource)
-  //         .setOldLayout(vk::ImageLayout::eTransferDstOptimal)
-  //         .setNewLayout(vk::ImageLayout::eTransferSrcOptimal)
-  //         .setImage(*image_.vk())
-  //         .setSrcAccessMask(vk::AccessFlagBits::eTransferWrite)
-  //         .setDstAccessMask(vk::AccessFlagBits::eTransferRead));
-
-  generate_mip_maps(device, copy_cmd_buf);
-
-  // copy_cmd_buf.pipelineBarrier(
-  //     vk::PipelineStageFlagBits::eTransfer,
-  //     vk::PipelineStageFlagBits::eAllCommands,
-  //     {},
-  //     nullptr,
-  //     nullptr,
-  //     vk::ImageMemoryBarrier()
-  //         .setSrcQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
-  //         .setDstQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
-  //         .setSubresourceRange(whole_image_resource)
-  //         .setOldLayout(vk::ImageLayout::eTransferDstOptimal)
-  //         .setNewLayout(vk::ImageLayout::eShaderReadOnlyOptimal)
-  //         .setImage(*image_.vk())
-  //         .setSrcAccessMask(vk::AccessFlagBits::eTransferWrite)
-  //         .setDstAccessMask(vk::AccessFlagBits::eShaderRead));
-
-  copy_cmd_buf.end();
-
-  vk::raii::Fence fence = device.vk().createFence({});
-
-  device.transfer_queue().submit2(
-      vk::SubmitInfo2() //
-          .setCommandBufferInfos(
-              vk::CommandBufferSubmitInfo().setCommandBuffer(*copy_cmd_buf)),
-      *fence);
-
-  vk::Result wait_result = device.vk().waitForFences(
-      *fence,
-      VK_TRUE,
-      std::numeric_limits<std::uint64_t>::max());
-
-  if(wait_result != vk::Result::eSuccess) {
-    throw_runtime_error("Failed to wait for fence.");
-  }
-}
-
-void Texture::generate_mip_maps(Device& device, vk::raii::CommandBuffer& cmd_buf) {
-  auto physical_device = device.physical_device();
-  vk::FormatProperties props = physical_device.getFormatProperties(format_);
-  if(!(props.optimalTilingFeatures &
-       vk::FormatFeatureFlagBits::eSampledImageFilterLinear)) {
-    throw_runtime_error(
-        "Texture image format does not support linear blitting!");
-  }
-
-  std::uint32_t mip_width = width_;
-  std::uint32_t mip_height = height_;
-
-  auto mip_barrier = //
-      vk::ImageMemoryBarrier()
-          .setImage(*image_.vk())
-          .setSrcQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
-          .setDstQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
-          .setSubresourceRange( //
-              vk::ImageSubresourceRange()
-                  .setAspectMask(vk::ImageAspectFlagBits::eColor)
-                  .setBaseMipLevel(0)
-                  .setLevelCount(1)
-                  .setBaseArrayLayer(0)
-                  .setLayerCount(1));
-
-  for(int i = 1; i < mip_count_; ++i) {
-    // Transition the previous mip to be transfer readable
-    mip_barrier //
-        .setOldLayout(vk::ImageLayout::eTransferDstOptimal)
-        .setNewLayout(vk::ImageLayout::eTransferSrcOptimal)
-        .setSrcAccessMask(vk::AccessFlagBits::eTransferWrite)
-        .setDstAccessMask(vk::AccessFlagBits::eTransferRead)
-        .subresourceRange.setBaseMipLevel(i - 1);
-
-    cmd_buf.pipelineBarrier(
-        vk::PipelineStageFlagBits::eTransfer,
-        vk::PipelineStageFlagBits::eTransfer,
-        {},
-        nullptr,
-        nullptr,
-        mip_barrier);
-
-    // Transition the current mip to be transfer targetable
-    mip_barrier //
-        .setOldLayout(vk::ImageLayout::eUndefined)
-        .setNewLayout(vk::ImageLayout::eTransferDstOptimal)
-        .setSrcAccessMask(vk::AccessFlagBits::eNone)
-        .setDstAccessMask(vk::AccessFlagBits::eTransferWrite)
-        .subresourceRange.setBaseMipLevel(i);
-
-    cmd_buf.pipelineBarrier(
-        vk::PipelineStageFlagBits::eTransfer,
-        vk::PipelineStageFlagBits::eTransfer,
-        {},
-        nullptr,
-        nullptr,
-        mip_barrier);
-
-    // Copy previous mip to current mip
-    cmd_buf.blitImage2(
-        vk::BlitImageInfo2() //
-            .setFilter(vk::Filter::eLinear)
-            .setSrcImage(*image_.vk())
-            .setSrcImageLayout(vk::ImageLayout::eTransferSrcOptimal)
-            .setDstImage(*image_.vk())
-            .setDstImageLayout(vk::ImageLayout::eTransferDstOptimal)
-            .setRegions(         //
-                vk::ImageBlit2() //
-                    .setSrcOffsets(
-                        {vk::Offset3D(0, 0, 0),
-                         vk::Offset3D(mip_width, mip_height, 1)})
-                    .setSrcSubresource(              //
-                        vk::ImageSubresourceLayers() //
-                            .setAspectMask(vk::ImageAspectFlagBits::eColor)
-                            .setBaseArrayLayer(0)
-                            .setLayerCount(1)
-                            .setMipLevel(i - 1))
-                    .setDstOffsets(
-                        {vk::Offset3D(0, 0, 0),
-                         vk::Offset3D(mip_width / 2, mip_height / 2, 1)})
-                    .setDstSubresource(
-                        vk::ImageSubresourceLayers()
-                            .setAspectMask(vk::ImageAspectFlagBits::eColor)
-                            .setBaseArrayLayer(0)
-                            .setLayerCount(1)
-                            .setMipLevel(i))));
-
-    // We're done with previous mip, transition to shader readable
-    mip_barrier //
-        .setOldLayout(vk::ImageLayout::eTransferSrcOptimal)
-        .setNewLayout(vk::ImageLayout::eShaderReadOnlyOptimal)
-        .setSrcAccessMask(vk::AccessFlagBits::eTransferRead)
-        .setDstAccessMask(vk::AccessFlagBits::eShaderRead)
-        .subresourceRange.setBaseMipLevel(i - 1);
-
-    cmd_buf.pipelineBarrier(
-        vk::PipelineStageFlagBits::eTransfer,
-        vk::PipelineStageFlagBits::eFragmentShader,
-        {},
-        nullptr,
-        nullptr,
-        mip_barrier);
-
-    if(mip_width >= 2) {
-      mip_width /= 2;
-    }
-
-    if(mip_height >= 2) {
-      mip_height /= 2;
-    }
-  }
-
-  // Transition the final mip to shader readable
-  mip_barrier //
-      .setOldLayout(vk::ImageLayout::eTransferDstOptimal)
-      .setNewLayout(vk::ImageLayout::eShaderReadOnlyOptimal)
-      .setSrcAccessMask(vk::AccessFlagBits::eTransferWrite)
-      .setDstAccessMask(vk::AccessFlagBits::eShaderRead)
-      .subresourceRange.setBaseMipLevel(mip_count_ - 1);
-
-  cmd_buf.pipelineBarrier(
-      vk::PipelineStageFlagBits::eTransfer,
-      vk::PipelineStageFlagBits::eFragmentShader,
-      {},
-      nullptr,
-      nullptr,
-      mip_barrier);
-}
-
-void Texture::update_descriptor() {
-  descriptor_.sampler = *sampler_;
-  descriptor_.imageView = *view_;
-  descriptor_.imageLayout = image_layout_;
 }
 
 Primitive::Primitive(
@@ -632,7 +317,14 @@ void Model::create_textures(Device& device, tinygltf::Model const& source) {
     else {
       sampler = texture_samplers[gltf_texture.sampler];
     }
-    textures.emplace_back(device, image, sampler);
+
+    TextureCreateInfo create_info;
+    create_info.width = image.width;
+    create_info.height = image.height;
+    create_info.component_count = image.component;
+    create_info.sampler = sampler;
+    create_info.image_data = image.image;
+    textures.emplace_back(device, create_info);
   }
 }
 

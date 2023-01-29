@@ -50,6 +50,7 @@ set(SOURCES
     shader_cache.cpp
     submission_context.cpp
     swapchain.cpp
+    texture.cpp
     vma/allocator.cpp
     vma/buffer.cpp
     vma/image.cpp

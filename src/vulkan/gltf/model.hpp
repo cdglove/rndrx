@@ -24,12 +24,14 @@
 #include "rndrx/noncopyable.hpp"
 #include "rndrx/vulkan/vma/buffer.hpp"
 #include "rndrx/vulkan/vma/image.hpp"
+#include "rndrx/vulkan/texture.hpp"
 
 // Changing this value also requires updating the skinning shaders.
 constexpr std::size_t kMaxNumJoints = 128;
 
 namespace rndrx::vulkan {
 class Device;
+class Texture;
 }
 
 namespace tinygltf {
@@ -52,36 +54,6 @@ struct BoundingBox {
   glm::vec3 min;
   glm::vec3 max;
   bool valid = false;
-};
-
-struct TextureSampler {
-  vk::Filter mag_filter;
-  vk::Filter min_filter;
-  vk::SamplerAddressMode address_mode_u;
-  vk::SamplerAddressMode address_mode_v;
-  vk::SamplerAddressMode address_mode_w;
-};
-
-class Texture : noncopyable {
- public:
-  Texture() = default;
-  Texture(Device& device, tinygltf::Image const& image_data, TextureSampler const& sampler);
-  void update_descriptor();
-
- private:
-  void generate_mip_maps(Device& device, vk::raii::CommandBuffer& cmd_buf);
-
-  vma::Image image_ = nullptr;
-  vk::raii::ImageView image_view_ = nullptr;
-  vk::raii::ImageView view_ = nullptr;
-  vk::raii::Sampler sampler_ = nullptr;
-  vk::ImageLayout image_layout_;
-  vk::Format format_;
-  vk::DescriptorImageInfo descriptor_;
-  std::uint32_t width_ = 0;
-  std::uint32_t height_ = 0;
-  std::uint32_t mip_count_ = 0;
-  std::uint32_t layer_count_ = 0;
 };
 
 struct Material {
