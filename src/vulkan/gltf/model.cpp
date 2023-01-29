@@ -20,12 +20,12 @@
 #include <vulkan/vulkan.hpp>
 #include <vulkan/vulkan_enums.hpp>
 #include <vulkan/vulkan_structs.hpp>
-#include "../device.hpp"
-#include "../vma/buffer.hpp"
 #include "glm/gtx/dual_quaternion.hpp"
 #include "rndrx/assert.hpp"
 #include "rndrx/log.hpp"
 #include "rndrx/throw_exception.hpp"
+#include "rndrx/vulkan/device.hpp"
+#include "rndrx/vulkan/vma/buffer.hpp"
 #include "tiny_gltf.h"
 
 constexpr int kTinyGltfNotSpecified = -1;

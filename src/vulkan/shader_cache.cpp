@@ -11,12 +11,12 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-#include "shader_cache.hpp"
+#include "rndrx/vulkan/shader_cache.hpp"
 
 #include <spirv_reflect.h>
 #include <filesystem>
 #include <fstream>
-#include "device.hpp"
+#include "rndrx/vulkan/device.hpp"
 
 namespace rndrx::vulkan {
 

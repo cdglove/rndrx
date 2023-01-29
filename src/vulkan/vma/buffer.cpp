@@ -11,10 +11,10 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-#include "buffer.hpp"
+#include "rndrx/vulkan/vma/buffer.hpp"
 
 #include <cstddef>
-#include "allocator.hpp"
+#include "rndrx/vulkan/vma/allocator.hpp"
 
 namespace rndrx::vulkan::vma {
 Buffer::Buffer(Allocator& allocator, vk::BufferCreateInfo const& create_info)

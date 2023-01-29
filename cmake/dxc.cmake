@@ -11,7 +11,8 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-  
+include(FetchContent)
+
 # If building from Windows we can use prebuilt dxc
 if(CMAKE_HOST_SYSTEM_NAME STREQUAL "Windows")
     FetchContent_Declare(

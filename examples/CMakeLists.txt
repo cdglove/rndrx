@@ -11,16 +11,15 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-cmake_minimum_required(VERSION 3.24)
-project(rndrx LANGUAGES CXX VERSION 0.0.1)
-set(CMAKE_CXX_STANDARD 20)
 
-if(MSVC)
-    add_compile_options(/EHsc)
-endif()
+add_executable(rndrx-vulkan-sample rndrx-vulkan-sample.cpp)
+target_link_libraries(rndrx-vulkan-sample 
+    PUBLIC 
+    rndrx-vulkan)
 
-include(cmake/dxc.cmake)
-
-add_subdirectory(assets)
-add_subdirectory(src)
-add_subdirectory(examples)
+find_package(Vulkan REQUIRED)
+add_executable(rndrx-vulkan-minimal minimal.cpp)
+target_link_libraries(rndrx-vulkan-minimal 
+    PUBLIC 
+    glfw 
+    Vulkan::Vulkan)

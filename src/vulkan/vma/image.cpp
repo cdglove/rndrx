@@ -11,10 +11,10 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-#include "image.hpp"
+#include "rndrx/vulkan/vma/image.hpp"
 
-#include "allocator.hpp"
 #include <cstddef>
+#include "rndrx/vulkan/vma/allocator.hpp"
 
 namespace rndrx::vulkan::vma {
 Image::Image(Allocator& allocator, vk::ImageCreateInfo const& create_info)
@@ -55,6 +55,5 @@ void Image::clear() {
 Image Allocator::create_image(vk::ImageCreateInfo const& create_info) {
   return Image(*this, create_info);
 }
-
 
 } // namespace rndrx::vulkan::vma

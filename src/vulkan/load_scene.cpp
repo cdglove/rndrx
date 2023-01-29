@@ -13,7 +13,7 @@
 // limitations under the License.
 #include "rndrx/log.hpp"
 #include "rndrx/throw_exception.hpp"
-#include "scene.hpp"
+#include "rndrx/vulkan/scene.hpp"
 
 #include "tiny_gltf.h"
 

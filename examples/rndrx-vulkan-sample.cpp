@@ -13,11 +13,9 @@
 // limitations under the License.
 #include <GLFW/glfw3.h>
 #include <iostream>
-#include <vulkan/vulkan.hpp>
-#include "application.hpp"
-#include "composite_render_pass.hpp"
-#include "imgui_render_pass.hpp"
-#include "render_context.hpp"
+#include "rndrx/vulkan/application.hpp"
+#include "rndrx/vulkan/composite_render_pass.hpp"
+#include "rndrx/vulkan/imgui_render_pass.hpp"
 
 namespace {
 void choose_graphics_device(rndrx::vulkan::Application& app) {

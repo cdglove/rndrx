@@ -11,13 +11,12 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-#include "device.hpp"
-#include <vulkan/vulkan_core.h>
-#include <vulkan/vulkan.hpp>
+#include "rndrx/vulkan/device.hpp"
 
-#include "application.hpp"
+#include <vulkan/vulkan.hpp>
 #include "rndrx/throw_exception.hpp"
 #include "rndrx/to_vector.hpp"
+#include "rndrx/vulkan/application.hpp"
 
 namespace rndrx::vulkan {
 Device::Device(Application const& app) {

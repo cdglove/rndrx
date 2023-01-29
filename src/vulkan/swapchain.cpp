@@ -11,7 +11,7 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-#include "swapchain.hpp"
+#include "rndrx/vulkan/swapchain.hpp"
 
 #include <GLFW/glfw3.h>
 #include <iterator>
@@ -22,13 +22,13 @@
 #include <vulkan/vulkan_handles.hpp>
 #include <vulkan/vulkan_raii.hpp>
 #include <vulkan/vulkan_structs.hpp>
-#include "application.hpp"
-#include "device.hpp"
-#include "render_target.hpp"
 #include "rndrx/noncopyable.hpp"
 #include "rndrx/throw_exception.hpp"
 #include "rndrx/to_vector.hpp"
-#include "window.hpp"
+#include "rndrx/vulkan/application.hpp"
+#include "rndrx/vulkan/device.hpp"
+#include "rndrx/vulkan/render_target.hpp"
+#include "rndrx/vulkan/window.hpp"
 
 namespace rndrx::vulkan {
 

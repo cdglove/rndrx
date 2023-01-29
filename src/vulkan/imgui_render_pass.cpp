@@ -11,18 +11,18 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-#include "imgui_render_pass.hpp"
+#include "rndrx/vulkan/imgui_render_pass.hpp"
 
 #include <memory>
-#include <vulkan/vulkan_structs.hpp>
-#include "application.hpp"
-#include "device.hpp"
+#include <vulkan/vulkan.hpp>
 #include "imgui.h"
 #include "imgui_impl_glfw.h"
 #include "imgui_impl_vulkan.h"
 #include "rndrx/throw_exception.hpp"
-#include "submission_context.hpp"
-#include "window.hpp"
+#include "rndrx/vulkan/application.hpp"
+#include "rndrx/vulkan/device.hpp"
+#include "rndrx/vulkan/submission_context.hpp"
+#include "rndrx/vulkan/window.hpp"
 
 namespace rndrx::vulkan {
 

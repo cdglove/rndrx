@@ -11,12 +11,12 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-#include "composite_render_pass.hpp"
+#include "rndrx/vulkan/composite_render_pass.hpp"
 
-#include "render_context.hpp"
-#include "shader_cache.hpp"
-#include "submission_context.hpp"
-#include "device.hpp"
+#include "rndrx/vulkan/render_context.hpp"
+#include "rndrx/vulkan/shader_cache.hpp"
+#include "rndrx/vulkan/submission_context.hpp"
+#include "rndrx/vulkan/device.hpp"
 
 namespace rndrx::vulkan {
 

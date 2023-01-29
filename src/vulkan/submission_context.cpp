@@ -11,13 +11,13 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-#include "submission_context.hpp"
+#include "rndrx/vulkan/submission_context.hpp"
 
 #include <vulkan/vulkan_core.h>
 #include <numeric>
 #include <vulkan/vulkan_raii.hpp>
-#include "device.hpp"
-#include "render_context.hpp"
+#include "rndrx/vulkan/device.hpp"
+#include "rndrx/vulkan/render_context.hpp"
 #include "rndrx/throw_exception.hpp"
 
 namespace rndrx::vulkan {

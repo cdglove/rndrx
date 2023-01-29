@@ -13,10 +13,6 @@
 // limitations under the License.
 #ifndef RNDRX_VULKAN_GLTF_MODEL_HPP_
 #define RNDRX_VULKAN_GLTF_MODEL_HPP_
-#include <vulkan/vulkan_enums.hpp>
-#include <vulkan/vulkan_handles.hpp>
-#include <vulkan/vulkan_structs.hpp>
-#include "glm/ext/matrix_float4x4.hpp"
 #pragma once
 
 #include <glm/glm.hpp>
@@ -24,9 +20,10 @@
 #include <glm/gtc/type_ptr.hpp>
 #include <glm/gtx/string_cast.hpp>
 #include <optional>
-#include "../vma/buffer.hpp"
-#include "../vma/image.hpp"
+#include <vulkan/vulkan.hpp>
 #include "rndrx/noncopyable.hpp"
+#include "rndrx/vulkan/vma/buffer.hpp"
+#include "rndrx/vulkan/vma/image.hpp"
 
 // Changing this value also requires updating the skinning shaders.
 constexpr std::size_t kMaxNumJoints = 128;

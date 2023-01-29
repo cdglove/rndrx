@@ -11,26 +11,26 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-#include "application.hpp"
+#include "rndrx/vulkan/application.hpp"
 
 #include <GLFW/glfw3.h>
 #include <vulkan/vulkan_core.h>
 #include <chrono>
 #include <memory>
-#include "composite_render_pass.hpp"
-#include "device.hpp"
 #include "imgui.h"
-#include "imgui_render_pass.hpp"
-#include "render_context.hpp"
 #include "rndrx/assert.hpp"
 #include "rndrx/log.hpp"
 #include "rndrx/scope_exit.hpp"
 #include "rndrx/throw_exception.hpp"
 #include "rndrx/to_vector.hpp"
-#include "shader_cache.hpp"
-#include "submission_context.hpp"
-#include "swapchain.hpp"
-#include "window.hpp"
+#include "rndrx/vulkan/composite_render_pass.hpp"
+#include "rndrx/vulkan/device.hpp"
+#include "rndrx/vulkan/imgui_render_pass.hpp"
+#include "rndrx/vulkan/render_context.hpp"
+#include "rndrx/vulkan/shader_cache.hpp"
+#include "rndrx/vulkan/submission_context.hpp"
+#include "rndrx/vulkan/swapchain.hpp"
+#include "rndrx/vulkan/window.hpp"
 
 #include "gltf/model.hpp"
 
@@ -239,10 +239,6 @@ void Application::run() {
       on_device_objects_destroyed();
     });
 
-    rndrx::vulkan::gltf::Model m = rndrx::vulkan::gltf::load_model_from_file(
-        device_objects_->device,
-        "assets/models/NewSponza_Main_glTF_002.gltf");
-    
     run_status_ = RunStatus::DeviceObjectsCreated;
     on_device_objects_created();
     main_loop();
@@ -458,6 +454,10 @@ void Application::render(SubmissionContext& ctx) {
 void Application::on_pre_create_device_objects(){};
 
 void Application::on_device_objects_created() {
+  rndrx::vulkan::gltf::Model m = rndrx::vulkan::gltf::load_model_from_file(
+      device_objects_->device,
+      "assets/models/NewSponza_Main_glTF_002.gltf");
+
   render_objects_ = std::make_unique<RenderObjects>(*this);
 };
 

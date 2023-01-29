@@ -11,11 +11,11 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-#include "allocator.hpp"
+#include "rndrx/vulkan/vma/allocator.hpp"
 
-#include "image.hpp"
-#include "buffer.hpp"
 #include <cstddef>
+#include "rndrx/vulkan/vma/buffer.hpp"
+#include "rndrx/vulkan/vma/image.hpp"
 
 namespace rndrx::vulkan::vma {
 Allocator::Allocator(

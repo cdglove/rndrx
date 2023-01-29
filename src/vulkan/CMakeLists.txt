@@ -32,12 +32,6 @@ FetchContent_Declare(
     GIT_TAG v3.0.1)
 FetchContent_MakeAvailable(vma)
 
-FetchContent_Declare(
-    vma-hpp
-    GIT_REPOSITORY https://github.com/YaaZ/VulkanMemoryAllocator-Hpp.git
-    GIT_TAG v3.0.1)
-FetchContent_MakeAvailable(vma-hpp)
-
 add_custom_target(vulkan_shaders ALL)
 add_vulkan_vertex_shader(TARGET vulkan_shaders SOURCE ../../assets/shaders/fullscreen_quad.hlsl ENTRY_POINT VSMain)
 add_vulkan_vertex_shader(TARGET vulkan_shaders SOURCE ../../assets/shaders/static_model.hlsl ENTRY_POINT VSMain)
@@ -51,10 +45,7 @@ set(SOURCES
     composite_render_pass.cpp
     device.cpp
     gltf/model.cpp
-    gltf/implementation.cpp
     imgui_render_pass.cpp
-    load_scene.cpp
-    main.cpp
     scene.cpp
     shader_cache.cpp
     submission_context.cpp
@@ -72,14 +63,7 @@ set(SOURCES
     ${dear_imgui_SOURCE_DIR}/imgui_widgets.cpp
     ${dear_imgui_SOURCE_DIR}/misc/cpp/imgui_stdlib.cpp)
 
-# When loading large files this file need to be optimised otherwise
-# debugging time is too long. 
-set_source_files_properties(gltf/implementation.cpp 
-                            PROPERTIES 
-                            COMPILE_FLAGS -O2 
-                            SKIP_PRECOMPILE_HEADERS ON)
-
-add_executable(rndrx-vulkan ${SOURCES})
+add_library(rndrx-vulkan ${SOURCES})
 
 target_link_libraries(rndrx-vulkan 
     PUBLIC 
@@ -88,7 +72,7 @@ target_link_libraries(rndrx-vulkan
     Vulkan::Vulkan
     VulkanMemoryAllocator
     spirv-reflect-static
-    tinygltf)
+    rndrx-common)
 
 target_include_directories(rndrx-vulkan 
     PUBLIC 
@@ -112,14 +96,11 @@ target_compile_definitions(rndrx-vulkan
     IMGUI_DISABLE_OBSOLETE_FUNCTIONS=1
     IMGUI_USE_STB_SPRINTF=1
     NOMINMAX=1
-    STBI_MSC_SECURE_CRT=1
-    TINYGLTF_NO_STB_IMAGE_WRITE=1
-    TINYGLTF_USE_CPP14=1
     WIN32_LEAN_AND_MEAN=1
 )
 
 target_precompile_headers(rndrx-vulkan 
-    PUBLIC
+    PRIVATE
     <vulkan/vulkan_core.h>
     <algorithm>
     <array>
@@ -138,12 +119,6 @@ target_precompile_headers(rndrx-vulkan
     <vulkan/vulkan_raii.hpp>
     <vulkan/vulkan_structs.hpp>)
 
-add_executable(rndrx-vulkan-minimal minimal.cpp)
-
-target_link_libraries(rndrx-vulkan-minimal 
-    PUBLIC 
-    glfw 
-    Vulkan::Vulkan)
 
 # add_custom_command(
 #     TARGET rndrx-vulkan POST_BUILD
