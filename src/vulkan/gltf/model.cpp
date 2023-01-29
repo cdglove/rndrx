@@ -110,17 +110,18 @@ struct NodeProperties {
   std::size_t node_count = 0;
   friend NodeProperties operator+(NodeProperties const& a, NodeProperties const& b) {
     return {
-        a.vertex_count + a.vertex_count,
+        a.vertex_count + b.vertex_count,
         a.index_count + b.index_count,
         a.node_count + b.node_count};
   }
 };
 
 NodeProperties get_node_properties_recursive(
-    const tinygltf::Node& node,
-    const tinygltf::Model& model) {
+    tinygltf::Node const& node,
+    tinygltf::Model const& model) {
   NodeProperties ret;
   ret.node_count = 1;
+
   if(node.mesh > kTinyGltfNotSpecified) {
     tinygltf::Mesh const& mesh = model.meshes[node.mesh];
     for(auto&& primitive : mesh.primitives) {
@@ -205,6 +206,14 @@ Texture::Texture(
         image_data.image.size());
   }
 
+  auto const whole_image_resource = //
+      vk::ImageSubresourceRange()
+          .setAspectMask(vk::ImageAspectFlagBits::eColor)
+          .setBaseMipLevel(0)
+          .setLevelCount(1)
+          .setBaseArrayLayer(0)
+          .setLayerCount(1);
+
   image_ = device.allocator().create_image( //
       vk::ImageCreateInfo()
           .setImageType(vk::ImageType::e2D)
@@ -213,10 +222,20 @@ Texture::Texture(
           .setArrayLayers(1)
           .setSamples(vk::SampleCountFlagBits::e1)
           .setTiling(vk::ImageTiling::eOptimal)
-          .setUsage(vk::ImageUsageFlagBits::eTransferDst | vk::ImageUsageFlagBits::eSampled)
+          .setUsage(
+              vk::ImageUsageFlagBits::eTransferSrc |
+              vk::ImageUsageFlagBits::eTransferDst | //
+              vk::ImageUsageFlagBits::eSampled)
           .setSharingMode(vk::SharingMode::eExclusive)
           .setInitialLayout(vk::ImageLayout::eUndefined)
           .setExtent(vk::Extent3D(width_, height_, 1)));
+
+  image_view_ = device.vk().createImageView(
+      vk::ImageViewCreateInfo()
+          .setImage(*image_.vk())
+          .setViewType(vk::ImageViewType::e2D)
+          .setFormat(format_)
+          .setSubresourceRange(whole_image_resource));
 
   sampler_ = device.vk().createSampler(
       vk::SamplerCreateInfo()
@@ -233,21 +252,14 @@ Texture::Texture(
           .setMaxAnisotropy(8.0f)
           .setAnisotropyEnable(VK_TRUE));
 
-  auto const whole_image_resource = //
-      vk::ImageSubresourceRange()
-          .setAspectMask(vk::ImageAspectFlagBits::eColor)
-          .setBaseMipLevel(0)
-          .setLevelCount(1)
-          .setBaseArrayLayer(0)
-          .setLayerCount(1);
-
   vk::raii::CommandBuffer copy_cmd_buf = device.alloc_transfer_command_buffer();
-  copy_cmd_buf.begin(vk::CommandBufferBeginInfo().setFlags(
-      vk::CommandBufferUsageFlagBits::eOneTimeSubmit));
+  copy_cmd_buf.begin( //
+      vk::CommandBufferBeginInfo().setFlags(
+          vk::CommandBufferUsageFlagBits::eOneTimeSubmit));
 
   copy_cmd_buf.pipelineBarrier(
-      vk::PipelineStageFlagBits::eTopOfPipe,
-      vk::PipelineStageFlagBits::eTransfer,
+      vk::PipelineStageFlagBits::eAllCommands,
+      vk::PipelineStageFlagBits::eAllCommands,
       {},
       nullptr,
       nullptr,
@@ -264,6 +276,7 @@ Texture::Texture(
   copy_cmd_buf.copyBufferToImage2(
       vk::CopyBufferToImageInfo2()
           .setDstImage(*image_.vk())
+          .setDstImageLayout(vk::ImageLayout::eTransferDstOptimal)
           .setSrcBuffer(*staging_buffer.vk())
           .setRegions( //
               vk::BufferImageCopy2()
@@ -279,33 +292,58 @@ Texture::Texture(
                           .setLayerCount(1)
                           .setMipLevel(0))));
 
-  copy_cmd_buf.pipelineBarrier(
-      vk::PipelineStageFlagBits::eTransfer,
-      vk::PipelineStageFlagBits::eBottomOfPipe,
-      {},
-      nullptr,
-      nullptr,
-      vk::ImageMemoryBarrier()
-          .setSrcQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
-          .setDstQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
-          .setSubresourceRange(whole_image_resource)
-          .setOldLayout(vk::ImageLayout::eTransferDstOptimal)
-          .setNewLayout(vk::ImageLayout::eShaderReadOnlyOptimal)
-          .setImage(*image_.vk())
-          .setSrcAccessMask(vk::AccessFlagBits::eTransferWrite)
-          .setDstAccessMask(vk::AccessFlagBits::eShaderRead));
-
-  image_view_ = device.vk().createImageView(
-      vk::ImageViewCreateInfo()
-          .setImage(*image_.vk())
-          .setViewType(vk::ImageViewType::e2D)
-          .setFormat(format_)
-          .setSubresourceRange(whole_image_resource));
+  // copy_cmd_buf.pipelineBarrier(
+  //     vk::PipelineStageFlagBits::eTransfer,
+  //     vk::PipelineStageFlagBits::eTransfer,
+  //     {},
+  //     nullptr,
+  //     nullptr,
+  //     vk::ImageMemoryBarrier()
+  //         .setSrcQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
+  //         .setDstQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
+  //         .setSubresourceRange(whole_image_resource)
+  //         .setOldLayout(vk::ImageLayout::eTransferDstOptimal)
+  //         .setNewLayout(vk::ImageLayout::eTransferSrcOptimal)
+  //         .setImage(*image_.vk())
+  //         .setSrcAccessMask(vk::AccessFlagBits::eTransferWrite)
+  //         .setDstAccessMask(vk::AccessFlagBits::eTransferRead));
 
   generate_mip_maps(device, copy_cmd_buf);
 
-  device.transfer_queue().submit2(vk::SubmitInfo2().setCommandBufferInfos(
-      vk::CommandBufferSubmitInfo().setCommandBuffer(*copy_cmd_buf)));
+  // copy_cmd_buf.pipelineBarrier(
+  //     vk::PipelineStageFlagBits::eTransfer,
+  //     vk::PipelineStageFlagBits::eAllCommands,
+  //     {},
+  //     nullptr,
+  //     nullptr,
+  //     vk::ImageMemoryBarrier()
+  //         .setSrcQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
+  //         .setDstQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
+  //         .setSubresourceRange(whole_image_resource)
+  //         .setOldLayout(vk::ImageLayout::eTransferDstOptimal)
+  //         .setNewLayout(vk::ImageLayout::eShaderReadOnlyOptimal)
+  //         .setImage(*image_.vk())
+  //         .setSrcAccessMask(vk::AccessFlagBits::eTransferWrite)
+  //         .setDstAccessMask(vk::AccessFlagBits::eShaderRead));
+
+  copy_cmd_buf.end();
+
+  vk::raii::Fence fence = device.vk().createFence({});
+
+  device.transfer_queue().submit2(
+      vk::SubmitInfo2() //
+          .setCommandBufferInfos(
+              vk::CommandBufferSubmitInfo().setCommandBuffer(*copy_cmd_buf)),
+      *fence);
+
+  vk::Result wait_result = device.vk().waitForFences(
+      *fence,
+      VK_TRUE,
+      std::numeric_limits<std::uint64_t>::max());
+
+  if(wait_result != vk::Result::eSuccess) {
+    throw_runtime_error("Failed to wait for fence.");
+  }
 }
 
 void Texture::generate_mip_maps(Device& device, vk::raii::CommandBuffer& cmd_buf) {
@@ -334,13 +372,29 @@ void Texture::generate_mip_maps(Device& device, vk::raii::CommandBuffer& cmd_buf
                   .setLayerCount(1));
 
   for(int i = 1; i < mip_count_; ++i) {
-    // Transition the previous be transfer readable
+    // Transition the previous mip to be transfer readable
     mip_barrier //
         .setOldLayout(vk::ImageLayout::eTransferDstOptimal)
         .setNewLayout(vk::ImageLayout::eTransferSrcOptimal)
         .setSrcAccessMask(vk::AccessFlagBits::eTransferWrite)
         .setDstAccessMask(vk::AccessFlagBits::eTransferRead)
         .subresourceRange.setBaseMipLevel(i - 1);
+
+    cmd_buf.pipelineBarrier(
+        vk::PipelineStageFlagBits::eTransfer,
+        vk::PipelineStageFlagBits::eTransfer,
+        {},
+        nullptr,
+        nullptr,
+        mip_barrier);
+
+    // Transition the current mip to be transfer targetable
+    mip_barrier //
+        .setOldLayout(vk::ImageLayout::eUndefined)
+        .setNewLayout(vk::ImageLayout::eTransferDstOptimal)
+        .setSrcAccessMask(vk::AccessFlagBits::eNone)
+        .setDstAccessMask(vk::AccessFlagBits::eTransferWrite)
+        .subresourceRange.setBaseMipLevel(i);
 
     cmd_buf.pipelineBarrier(
         vk::PipelineStageFlagBits::eTransfer,
@@ -362,7 +416,7 @@ void Texture::generate_mip_maps(Device& device, vk::raii::CommandBuffer& cmd_buf
                 vk::ImageBlit2() //
                     .setSrcOffsets(
                         {vk::Offset3D(0, 0, 0),
-                         vk::Offset3D(mip_width, mip_height, 0)})
+                         vk::Offset3D(mip_width, mip_height, 1)})
                     .setSrcSubresource(              //
                         vk::ImageSubresourceLayers() //
                             .setAspectMask(vk::ImageAspectFlagBits::eColor)
@@ -371,7 +425,7 @@ void Texture::generate_mip_maps(Device& device, vk::raii::CommandBuffer& cmd_buf
                             .setMipLevel(i - 1))
                     .setDstOffsets(
                         {vk::Offset3D(0, 0, 0),
-                         vk::Offset3D(mip_width / 2, mip_height / 2, 0)})
+                         vk::Offset3D(mip_width / 2, mip_height / 2, 1)})
                     .setDstSubresource(
                         vk::ImageSubresourceLayers()
                             .setAspectMask(vk::ImageAspectFlagBits::eColor)
@@ -383,7 +437,7 @@ void Texture::generate_mip_maps(Device& device, vk::raii::CommandBuffer& cmd_buf
     mip_barrier //
         .setOldLayout(vk::ImageLayout::eTransferSrcOptimal)
         .setNewLayout(vk::ImageLayout::eShaderReadOnlyOptimal)
-        .setSrcAccessMask(vk::AccessFlagBits::eTransferWrite)
+        .setSrcAccessMask(vk::AccessFlagBits::eTransferRead)
         .setDstAccessMask(vk::AccessFlagBits::eShaderRead)
         .subresourceRange.setBaseMipLevel(i - 1);
 
@@ -406,7 +460,7 @@ void Texture::generate_mip_maps(Device& device, vk::raii::CommandBuffer& cmd_buf
 
   // Transition the final mip to shader readable
   mip_barrier //
-      .setOldLayout(vk::ImageLayout::eTransferSrcOptimal)
+      .setOldLayout(vk::ImageLayout::eTransferDstOptimal)
       .setNewLayout(vk::ImageLayout::eShaderReadOnlyOptimal)
       .setSrcAccessMask(vk::AccessFlagBits::eTransferWrite)
       .setDstAccessMask(vk::AccessFlagBits::eShaderRead)
@@ -540,120 +594,14 @@ Model::Model(Device& device, tinygltf::Model const& source) {
   create_texture_samplers(source);
   create_textures(device, source);
   create_materials(source);
-  create_nodes(device, source);
+
+  LoaderInfo loader_info;
+  create_nodes(device, source, loader_info);
   create_animations(source);
   create_skins(source);
+  create_device_buffers(device, loader_info);
 
-  //   const tinygltf::Scene& scene =
-  //       source.scenes[source.defaultScene > -1 ? source.defaultScene : 0];
-
-  //   // Get vertex and index buffer sizes up-front
-  //   for(size_t i = 0; i < scene.nodes.size(); i++) {
-  //     getNodeProps(source.nodes[scene.nodes[i]], source, vertex_count,
-  //     index_count);
-  //   }
-  //   loader_info.vertex_buffer = new Vertex[vertex_count];
-  //   loader_info.index_buffer = new uint32_t[index_count];
-
-  //   // TODO: scene handling with no default scene
-  //   for(size_t i = 0; i < scene.nodes.size(); i++) {
-  //     const tinygltf::Node node = source.nodes[scene.nodes[i]];
-  //     loadNode(nullptr, node, scene.nodes[i], source, loader_info, scale);
-  //   }
-  //   if(source.animations.size() > 0) {
-  //     loadAnimations(source);
-  //   }
-  //   loadSkins(source);
-
-  //   for(auto node : linearNodes) {
-  //     // Assign skins
-  //     if(node->skinIndex > -1) {
-  //       node->skin = skins[node->skinIndex];
-  //     }
-  //     // Initial pose
-  //     if(node->mesh) {
-  //       node->update();
-  //     }
-  //   }
-  // }
-
-  // extensions = source.extensionsUsed;
-
-  // size_t vertex_bufferSize = vertex_count * sizeof(Vertex);
-  // size_t index_bufferSize = index_count * sizeof(uint32_t);
-
-  // assert(vertex_bufferSize > 0);
-
-  // struct StagingBuffer {
-  //   VkBuffer buffer;
-  //   VkDeviceMemory memory;
-  // } vertexStaging, indexStaging;
-
-  // // Create staging buffers
-  // // Vertex data
-  // VK_CHECK_RESULT(device->createBuffer(
-  //     VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-  //     VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-  //     VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, vertex_bufferSize,
-  //     &vertexStaging.buffer,
-  //     &vertexStaging.memory,
-  //     loader_info.vertex_buffer));
-  // // Index data
-  // if(index_bufferSize > 0) {
-  //   VK_CHECK_RESULT(device->createBuffer(
-  //       VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-  //       VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-  //       VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, index_bufferSize,
-  //       &indexStaging.buffer,
-  //       &indexStaging.memory,
-  //       loader_info.index_buffer));
-  // }
-
-  // // Create device local buffers
-  // // Vertex buffer
-  // VK_CHECK_RESULT(device->createBuffer(
-  //     VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-  //     VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-  //     vertex_bufferSize,
-  //     &vertices.buffer,
-  //     &vertices.memory));
-  // // Index buffer
-  // if(index_bufferSize > 0) {
-  //   VK_CHECK_RESULT(device->createBuffer(
-  //       VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-  //       VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-  //       index_bufferSize,
-  //       &indices.buffer,
-  //       &indices.memory));
-  // }
-
-  // // Copy from staging buffers
-  // VkCommandBuffer copyCmd = device->createCommandBuffer(
-  //     VK_COMMAND_BUFFER_LEVEL_PRIMARY,
-  //     true);
-
-  // VkBufferCopy copyRegion = {};
-
-  // copyRegion.size = vertex_bufferSize;
-  // vkCmdCopyBuffer(copyCmd, vertexStaging.buffer, vertices.buffer, 1, &copyRegion);
-
-  // if(index_bufferSize > 0) {
-  //   copyRegion.size = index_bufferSize;
-  //   vkCmdCopyBuffer(copyCmd, indexStaging.buffer, indices.buffer, 1,
-  //   &copyRegion);
-  // }
-
-  // device->flushCommandBuffer(copyCmd, transferQueue, true);
-
-  // vkDestroyBuffer(device->logicalDevice, vertexStaging.buffer, nullptr);
-  // vkFreeMemory(device->logicalDevice, vertexStaging.memory, nullptr);
-  // if(index_bufferSize > 0) {
-  //   vkDestroyBuffer(device->logicalDevice, indexStaging.buffer, nullptr);
-  //   vkFreeMemory(device->logicalDevice, indexStaging.memory, nullptr);
-  // }
-
-  // delete[] loader_info.vertex_buffer;
-  // delete[] loader_info.index_buffer;
+  extensions = source.extensionsUsed;
 
   // getSceneDimensions();
 }
@@ -720,7 +668,7 @@ void Model::create_materials(tinygltf::Model const& source) {
       return std::addressof(iter->second);
     };
 
-    Material material;
+    Material& material = materials.emplace_back();
     material.double_sided = gltf_material.doubleSided;
 
     if(auto properties = get_value("baseColorTexture")) {
@@ -828,32 +776,32 @@ void Model::create_materials(tinygltf::Model const& source) {
           }
         }
       }
-
-      materials.push_back(material);
     }
   }
 }
 
-void Model::create_nodes(Device& device, tinygltf::Model const& source) {
+void Model::create_nodes(
+    Device& device,
+    tinygltf::Model const& source,
+    LoaderInfo& loader_info) {
   tinygltf::Scene const& scene =
       source.scenes[source.defaultScene > kTinyGltfNotSpecified ? source.defaultScene : 0];
 
   NodeProperties scene_properties = std::accumulate(
-      source.nodes.begin(),
-      source.nodes.end(),
+      scene.nodes.begin(),
+      scene.nodes.end(),
       NodeProperties(),
-      [&source](NodeProperties props, auto&& node) {
-        return props + get_node_properties_recursive(node, source);
+      [&source](NodeProperties props, int node_idx) {
+        return props +
+               get_node_properties_recursive(source.nodes[node_idx], source);
       });
 
-  LoaderInfo loader_info;
   loader_info.vertex_buffer.resize(scene_properties.vertex_count);
-  loader_info.index_buffer.resize(scene_properties.vertex_count);
+  loader_info.index_buffer.resize(scene_properties.index_count);
 
   RNDRX_ASSERT(scene_properties.node_count == source.nodes.size());
   nodes.reserve(scene_properties.node_count);
 
-  // TODO: scene handling with no default scene
   for(auto&& node_idx : scene.nodes) {
     tinygltf::Node const& node = source.nodes[node_idx];
     create_node_recursive(device, source, node, nullptr, node_idx, loader_info);
@@ -909,7 +857,7 @@ void Model::create_node_recursive(
 
   if(source_node.mesh > kTinyGltfNotSpecified) {
     tinygltf::Mesh const& mesh = source.meshes[source_node.mesh];
-    *new_node.mesh = Mesh(device, new_node.matrix);
+    new_node.mesh = Mesh(device, new_node.matrix);
     for(auto&& primitive : mesh.primitives) {
       std::uint32_t vertex_start = loader_info.vertex_position;
       std::uint32_t index_start = loader_info.index_position;
@@ -1304,164 +1252,76 @@ void Model::create_skins(tinygltf::Model const& source) {
   }
 }
 
-// void Model::loadFromFile(
-//     std::string filename,
-//     vks::VulkanDevice* device,
-//     VkQueue transferQueue,
-//     float scale) {
-//   tinygltf::Model source;
-//   tinygltf::TinyGLTF gltfContext;
+void Model::create_device_buffers(Device& device, LoaderInfo const& loader_info) {
+  std::size_t vertex_buffer_size = loader_info.vertex_buffer.size() *
+                                   sizeof(Vertex);
+  std::size_t index_buffer_size = loader_info.index_buffer.size() *
+                                  sizeof(std::uint32_t);
 
-//   std::string error;
-//   std::string warning;
+  RNDRX_ASSERT(vertex_buffer_size > 0);
 
-//   this->device = device;
+  vma::Buffer vertex_staging = device.allocator().create_buffer(
+      vk::BufferCreateInfo()
+          .setSize(vertex_buffer_size)
+          .setUsage(vk::BufferUsageFlagBits::eTransferSrc));
 
-//   bool binary = false;
-//   size_t extpos = filename.rfind('.', filename.length());
-//   if(extpos != std::string::npos) {
-//     binary = (filename.substr(extpos + 1, filename.length() - extpos) ==
-//     "glb");
-//   }
+  vma::Buffer index_staging = device.allocator().create_buffer(
+      vk::BufferCreateInfo()
+          .setSize(index_buffer_size)
+          .setUsage(vk::BufferUsageFlagBits::eTransferSrc));
 
-//   bool fileLoaded = binary ? gltfContext.LoadBinaryFromFile(
-//                                  &source,
-//                                  &error,
-//                                  &warning,
-//                                  filename.c_str())
-//                            : gltfContext.LoadASCIIFromFile(
-//                                  &source,
-//                                  &error,
-//                                  &warning,
-//                                  filename.c_str());
+  vertices = device.allocator().create_buffer(
+      vk::BufferCreateInfo()
+          .setSize(vertex_buffer_size)
+          .setUsage(
+              vk::BufferUsageFlagBits::eTransferDst |
+              vk::BufferUsageFlagBits::eVertexBuffer));
 
-//   loader_info loader_info{};
-//   size_t vertex_count = 0;
-//   size_t index_count = 0;
+  indices = device.allocator().create_buffer(
+      vk::BufferCreateInfo()
+          .setSize(index_buffer_size)
+          .setUsage(
+              vk::BufferUsageFlagBits::eTransferDst |
+              vk::BufferUsageFlagBits::eIndexBuffer));
 
-//   if(fileLoaded) {
-//     loadTextureSamplers(source);
-//     loadTextures(source, device, transferQueue);
-//     loadMaterials(source);
+  struct StagingBuffer {
+    VkBuffer buffer;
+    VkDeviceMemory memory;
+  } vertexStaging, indexStaging;
 
-//     const tinygltf::Scene& scene =
-//         source.scenes[source.defaultScene > -1 ? source.defaultScene : 0];
+  auto transfer_cmd = device.alloc_transfer_command_buffer();
+  transfer_cmd.begin( //
+      vk::CommandBufferBeginInfo().setFlags(
+          vk::CommandBufferUsageFlagBits::eOneTimeSubmit));
 
-//     // Get vertex and index buffer sizes up-front
-//     for(size_t i = 0; i < scene.nodes.size(); i++) {
-//       getNodeProps(source.nodes[scene.nodes[i]], source, vertex_count,
-//       index_count);
-//     }
-//     loader_info.vertex_buffer = new Vertex[vertex_count];
-//     loader_info.index_buffer = new uint32_t[index_count];
+  transfer_cmd.copyBuffer(
+      *vertex_staging.vk(),
+      *vertices.vk(),
+      vk::BufferCopy(0, 0, vertex_buffer_size));
 
-//     // TODO: scene handling with no default scene
-//     for(size_t i = 0; i < scene.nodes.size(); i++) {
-//       const tinygltf::Node node = source.nodes[scene.nodes[i]];
-//       loadNode(nullptr, node, scene.nodes[i], source, loader_info, scale);
-//     }
-//     if(source.animations.size() > 0) {
-//       loadAnimations(source);
-//     }
-//     loadSkins(source);
+  transfer_cmd.copyBuffer(
+      *index_staging.vk(),
+      *indices.vk(),
+      vk::BufferCopy(0, 0, index_buffer_size));
 
-//     for(auto node : linearNodes) {
-//       // Assign skins
-//       if(node->skinIndex > -1) {
-//         node->skin = skins[node->skinIndex];
-//       }
-//       // Initial pose
-//       if(node->mesh) {
-//         node->update();
-//       }
-//     }
-//   }
-//   else {
-//     // TODO: throw
-//     std::cerr << "Could not load gltf file: " << error << std::endl;
-//     return;
-//   }
+  transfer_cmd.end();
 
-//   extensions = source.extensionsUsed;
+  vk::raii::Fence fence = device.vk().createFence({});
 
-//   size_t vertex_bufferSize = vertex_count * sizeof(Vertex);
-//   size_t index_bufferSize = index_count * sizeof(uint32_t);
+  device.transfer_queue().submit2(
+      vk::SubmitInfo2() //
+          .setCommandBufferInfos(
+              vk::CommandBufferSubmitInfo().setCommandBuffer(*transfer_cmd)),
+      *fence);
+  vk::Result wait_result = device.vk().waitForFences(
+      *fence,
+      VK_TRUE,
+      std::numeric_limits<std::uint64_t>::max());
 
-//   assert(vertex_bufferSize > 0);
-
-//   struct StagingBuffer {
-//     VkBuffer buffer;
-//     VkDeviceMemory memory;
-//   } vertexStaging, indexStaging;
-
-//   // Create staging buffers
-//   // Vertex data
-//   VK_CHECK_RESULT(device->createBuffer(
-//       VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-//       VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-//       VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, vertex_bufferSize,
-//       &vertexStaging.buffer,
-//       &vertexStaging.memory,
-//       loader_info.vertex_buffer));
-//   // Index data
-//   if(index_bufferSize > 0) {
-//     VK_CHECK_RESULT(device->createBuffer(
-//         VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-//         VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-//         VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, index_bufferSize,
-//         &indexStaging.buffer,
-//         &indexStaging.memory,
-//         loader_info.index_buffer));
-//   }
-
-//   // Create device local buffers
-//   // Vertex buffer
-//   VK_CHECK_RESULT(device->createBuffer(
-//       VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-//       VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-//       vertex_bufferSize,
-//       &vertices.buffer,
-//       &vertices.memory));
-//   // Index buffer
-//   if(index_bufferSize > 0) {
-//     VK_CHECK_RESULT(device->createBuffer(
-//         VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-//         VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-//         index_bufferSize,
-//         &indices.buffer,
-//         &indices.memory));
-//   }
-
-//   // Copy from staging buffers
-//   VkCommandBuffer copyCmd = device->createCommandBuffer(
-//       VK_COMMAND_BUFFER_LEVEL_PRIMARY,
-//       true);
-
-//   VkBufferCopy copyRegion = {};
-
-//   copyRegion.size = vertex_bufferSize;
-//   vkCmdCopyBuffer(copyCmd, vertexStaging.buffer, vertices.buffer, 1, &copyRegion);
-
-//   if(index_bufferSize > 0) {
-//     copyRegion.size = index_bufferSize;
-//     vkCmdCopyBuffer(copyCmd, indexStaging.buffer, indices.buffer, 1,
-//     &copyRegion);
-//   }
-
-//   device->flushCommandBuffer(copyCmd, transferQueue, true);
-
-//   vkDestroyBuffer(device->logicalDevice, vertexStaging.buffer, nullptr);
-//   vkFreeMemory(device->logicalDevice, vertexStaging.memory, nullptr);
-//   if(index_bufferSize > 0) {
-//     vkDestroyBuffer(device->logicalDevice, indexStaging.buffer, nullptr);
-//     vkFreeMemory(device->logicalDevice, indexStaging.memory, nullptr);
-//   }
-
-//   delete[] loader_info.vertex_buffer;
-//   delete[] loader_info.index_buffer;
-
-//   getSceneDimensions();
-// }
+  if(wait_result != vk::Result::eSuccess) {
+    throw_runtime_error("Failed to wait for fence.");
+  }
+}
 
 // void Model::drawNode(Node* node, VkCommandBuffer commandBuffer) {
 //   if(node->mesh) {
@@ -1614,10 +1474,12 @@ Model load_model_from_file(Device& device, std::string_view path) {
   std::filesystem::path fs_path(path);
   bool file_loaded = false;
   if(fs_path.extension() == "glb") {
-    loader.LoadBinaryFromFile(&model, &err, &warn, fs_path.generic_string());
+    file_loaded =
+        loader.LoadBinaryFromFile(&model, &err, &warn, fs_path.generic_string());
   }
   else {
-    loader.LoadBinaryFromFile(&model, &err, &warn, fs_path.generic_string());
+    file_loaded =
+        loader.LoadASCIIFromFile(&model, &err, &warn, fs_path.generic_string());
   }
 
   if(!warn.empty()) {

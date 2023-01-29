@@ -72,6 +72,13 @@ set(SOURCES
     ${dear_imgui_SOURCE_DIR}/imgui_widgets.cpp
     ${dear_imgui_SOURCE_DIR}/misc/cpp/imgui_stdlib.cpp)
 
+# When loading large files this file need to be optimised otherwise
+# debugging time is too long. 
+set_source_files_properties(gltf/implementation.cpp 
+                            PROPERTIES 
+                            COMPILE_FLAGS -O2 
+                            SKIP_PRECOMPILE_HEADERS ON)
+
 add_executable(rndrx-vulkan ${SOURCES})
 
 target_link_libraries(rndrx-vulkan 

@@ -294,7 +294,7 @@ class Model {
   void create_materials(tinygltf::Model const& source);
   void create_animations(tinygltf::Model const& source);
   void create_skins(tinygltf::Model const& source);
-  void create_nodes(Device& device, tinygltf::Model const& source);
+  void create_nodes(Device& device, tinygltf::Model const& source, LoaderInfo& loader_info);
   void create_node_recursive(
       Device& device,
       tinygltf::Model const& source,
@@ -302,6 +302,7 @@ class Model {
       Node* parent,
       std::uint32_t node_index,
       LoaderInfo& loader_info);
+  void create_device_buffers(Device& device, LoaderInfo const& loader_info);
 };
 
 Model load_model_from_file(Device& device, std::string_view path);

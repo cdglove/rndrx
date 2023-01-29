@@ -16,7 +16,6 @@
 #include <vulkan/vulkan.hpp>
 #include "application.hpp"
 #include "composite_render_pass.hpp"
-#include "gltf/model.hpp"
 #include "imgui_render_pass.hpp"
 #include "render_context.hpp"
 
@@ -33,8 +32,6 @@ void choose_graphics_device(rndrx::vulkan::Application& app) {
 } // namespace
 
 int main(int, char**) {
-  // rndrx::vulkan::Scene scene = rndrx::vulkan::load_scene(
-  //     "assets/models/NewSponza_Main_glTF_002.gltf");
   rndrx::vulkan::Application app;
   choose_graphics_device(app);
   try {

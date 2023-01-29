@@ -62,7 +62,9 @@ void Device::create_device(Application const& app) {
           vk::DeviceCreateInfo() //
               .setQueueCreateInfos(queue_create_infos)
               .setPEnabledExtensionNames(required_extensions),
-          vk::PhysicalDeviceFeatures2(),
+          vk::PhysicalDeviceFeatures2().setFeatures( //
+              vk::PhysicalDeviceFeatures()           //
+                  .setSamplerAnisotropy(VK_TRUE)),
           vk::PhysicalDeviceVulkan13Features() //
               .setSynchronization2(VK_TRUE)
               .setDynamicRendering(VK_TRUE));
@@ -103,9 +105,11 @@ void Device::create_descriptor_pool() {
 
 void Device::create_command_pools() {
   graphics_command_pool_ = device_.createCommandPool(
-      vk::CommandPoolCreateInfo().setQueueFamilyIndex(graphics_queue_family_idx()));
+      vk::CommandPoolCreateInfo() //
+          .setQueueFamilyIndex(graphics_queue_family_idx()));
   transfer_command_pool_ = device_.createCommandPool(
-      vk::CommandPoolCreateInfo().setQueueFamilyIndex(transfer_queue_family_idx()));
+      vk::CommandPoolCreateInfo() //
+          .setQueueFamilyIndex(transfer_queue_family_idx()));
 }
 
 } // namespace rndrx::vulkan

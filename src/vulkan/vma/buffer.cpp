@@ -44,6 +44,7 @@ Buffer& Buffer::operator=(Buffer&& rhs) {
   buffer_ = std::move(rhs.buffer_);
   allocator_ = rhs.allocator_;
   allocation_ = rhs.allocation_;
+  info_ = rhs.info_;
   return *this;
 }
 

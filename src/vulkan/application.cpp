@@ -32,6 +32,8 @@
 #include "swapchain.hpp"
 #include "window.hpp"
 
+#include "gltf/model.hpp"
+
 namespace rndrx::vulkan {
 
 namespace {
@@ -43,7 +45,7 @@ VKAPI_ATTR vk::Bool32 VKAPI_CALL vulkan_validation_callback(
     void* user_data) {
   if(!(static_cast<vk::DebugUtilsMessageSeverityFlagBitsEXT>(severity) &
        vk::DebugUtilsMessageSeverityFlagBitsEXT::eInfo)) {
-    std::cerr << "validation layer: " << message_data->pMessage << std::endl;
+    LOG(Info) << "validation layer: " << message_data->pMessage << std::endl;
     return VK_TRUE;
   }
   return VK_FALSE;
@@ -140,7 +142,7 @@ std::uint32_t Application::find_transfer_queue_family_idx() const {
       });
 
   // If we can't find a dedicated family with multiple queues
-  // that supports transfer. 
+  // that supports transfer.
   if(transfer_queue == queue_family_properties.end()) {
     transfer_queue = std::ranges::find_if(
         queue_family_properties,
@@ -148,14 +150,14 @@ std::uint32_t Application::find_transfer_queue_family_idx() const {
           if(props.queueCount == 1) {
             return false;
           }
-          
+
           return (props.queueFlags & vk::QueueFlagBits::eTransfer) ==
                  vk::QueueFlagBits::eTransfer;
         });
   }
 
   // If we can't find a dedicated family multiple queues try to get one that
-  // at least supports transfer. 
+  // at least supports transfer.
   if(transfer_queue == queue_family_properties.end()) {
     transfer_queue = std::ranges::find_if(
         queue_family_properties,
@@ -226,8 +228,8 @@ void Application::run() {
     }
 
     on_pre_create_device_objects();
-    device_objects_ = std::make_unique<DeviceObjects>(*this);
 
+    device_objects_ = std::make_unique<DeviceObjects>(*this);
     auto exit_main_loop = on_scope_exit([this] {
       run_status_ = RunStatus::DestroyingDeviceObjects;
       device().vk().waitIdle();
@@ -237,6 +239,10 @@ void Application::run() {
       on_device_objects_destroyed();
     });
 
+    rndrx::vulkan::gltf::Model m = rndrx::vulkan::gltf::load_model_from_file(
+        device_objects_->device,
+        "assets/models/NewSponza_Main_glTF_002.gltf");
+    
     run_status_ = RunStatus::DeviceObjectsCreated;
     on_device_objects_created();
     main_loop();
@@ -370,7 +376,7 @@ void Application::select_device() {
       instance_.enumeratePhysicalDevices() |
       std::ranges::views::filter([&required_device_extensions](
                                      vk::raii::PhysicalDevice const& dev) {
-        return std::ranges::all_of(
+        bool has_all_required_extensions = std::ranges::all_of(
             required_device_extensions,
             [&dev](std::string_view extension_name) {
               return std::ranges::any_of(
@@ -380,6 +386,9 @@ void Application::select_device() {
                     return extension_name == extension_properties.extensionName;
                   });
             });
+
+        auto features = dev.getFeatures();
+        return has_all_required_extensions && features.samplerAnisotropy;
       }) |
       to_vector;
 }

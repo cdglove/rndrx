@@ -69,11 +69,11 @@ class Device : noncopyable {
   }
 
   std::uint32_t transfer_queue_family_idx() const {
-    return queue_family_indices_.transfer;
+    return queue_family_indices_.graphics;
   }
 
   vk::raii::Queue& transfer_queue() {
-    return transfer_queue_;
+    return graphics_queue_;
   }
 
   vk::raii::CommandPool& transfer_command_pool() {
