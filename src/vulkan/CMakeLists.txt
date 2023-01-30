@@ -44,6 +44,7 @@ set(SOURCES
     application.cpp
     composite_render_pass.cpp
     device.cpp
+    draw_primitive.cpp
     gltf/model.cpp
     imgui_render_pass.cpp
     scene.cpp
@@ -69,7 +70,6 @@ add_library(rndrx-vulkan ${SOURCES})
 target_link_libraries(rndrx-vulkan 
     PUBLIC 
     glfw 
-    glm
     Vulkan::Vulkan
     VulkanMemoryAllocator
     spirv-reflect-static
@@ -77,7 +77,6 @@ target_link_libraries(rndrx-vulkan
 
 target_include_directories(rndrx-vulkan 
     PUBLIC 
-    ${PROJECT_SOURCE_DIR}/include
     ${dear_imgui_SOURCE_DIR} 
     ${dear_imgui_SOURCE_DIR}/backends
     ${dear_imgui_SOURCE_DIR}/misc/cpp
@@ -91,9 +90,6 @@ target_compile_definitions(rndrx-vulkan
     $<$<CONFIG:DEBUG>:RNDRX_ENABLE_VULKAN_DEBUG_LAYER=1>
     GLFW_EXPOSE_NATIVE_WIN32=
     GLFW_INCLUDE_VULKAN=
-    GLM_FORCE_DEFAULT_ALIGNED_GENTYPES=1
-    GLM_FORCE_DEPTH_ZERO_TO_ONE=1
-    GLM_FORCE_RADIANS=1
     IMGUI_DISABLE_OBSOLETE_FUNCTIONS=1
     IMGUI_USE_STB_SPRINTF=1
     NOMINMAX=1

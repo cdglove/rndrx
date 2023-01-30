@@ -13,7 +13,6 @@
 // limitations under the License.
 #ifndef RNDRX_VULKAN_GLTF_MODEL_HPP_
 #define RNDRX_VULKAN_GLTF_MODEL_HPP_
-#include <vulkan/vulkan_raii.hpp>
 #pragma once
 
 #include <glm/glm.hpp>
@@ -22,7 +21,11 @@
 #include <glm/gtx/string_cast.hpp>
 #include <optional>
 #include <vulkan/vulkan.hpp>
+#include <vulkan/vulkan_raii.hpp>
+#include "rndrx/bounding_box.hpp"
 #include "rndrx/noncopyable.hpp"
+#include "rndrx/vulkan/draw_primitive.hpp"
+#include "rndrx/vulkan/material.hpp"
 #include "rndrx/vulkan/texture.hpp"
 #include "rndrx/vulkan/vma/buffer.hpp"
 #include "rndrx/vulkan/vma/image.hpp"
@@ -43,94 +46,8 @@ class Node;
 
 namespace rndrx::vulkan::gltf {
 
-struct BoundingBox {
-  BoundingBox() = default;
-  BoundingBox(glm::vec3 min, glm::vec3 max)
-      : min(min)
-      , max(max) {
-  }
-
-  BoundingBox get_aabb(glm::mat4 const& aligned_to) const;
-
-  glm::vec3 min;
-  glm::vec3 max;
-  bool valid = false;
-};
-
-struct Material {
-  enum class AlphaMode { Opaque, Mask, Blend };
-  AlphaMode alpha_mode = AlphaMode::Opaque;
-  float alpha_cutoff = 1.f;
-  float metallic_factor = 1.f;
-  float roughness_factor = 1.f;
-  glm::vec4 base_colour_factor = glm::vec4(1.f);
-  glm::vec4 emissive_factor = glm::vec4(1.f);
-  Texture const* base_colour_texture = nullptr;
-  Texture const* metallic_roughness_texture = nullptr;
-  Texture const* normal_texture = nullptr;
-  Texture const* occlusion_texture = nullptr;
-  Texture const* emissive_texture = nullptr;
-  bool double_sided = false;
-  struct TexCoordSets {
-    std::uint8_t base_colour = 0;
-    std::uint8_t metallic_roughness = 0;
-    std::uint8_t specular_glossiness = 0;
-    std::uint8_t normal = 0;
-    std::uint8_t occlusion = 0;
-    std::uint8_t emissive = 0;
-  } tex_coord_sets;
-  struct Extension {
-    Texture const* specular_glossiness_texture = nullptr;
-    Texture const* diffuse_texture = nullptr;
-    glm::vec4 diffuse_factor = glm::vec4(1.f);
-    glm::vec3 specular_factor = glm::vec3(0.f);
-  } extension;
-  struct PbrWorkflows {
-    bool metallic_roughness = true;
-    bool specular_glossiness = false;
-  } pbr_workflows;
-  VkDescriptorSet descriptor_set = VK_NULL_HANDLE;
-};
-
-class Primitive : noncopyable {
+class Mesh : noncopyable {
  public:
-  Primitive(
-      std::uint32_t first_index,
-      std::uint32_t index_count,
-      std::uint32_t vertex_count,
-      Material const& material);
-
-  void set_bounding_box(glm::vec3 min, glm::vec3 max);
-
-  std::uint32_t first_index() const {
-    return first_index_;
-  }
-  std::uint32_t index_count() const {
-    return index_count_;
-  }
-  std::uint32_t vertex_count() const {
-    return vertex_count_;
-  }
-  Material const& material() const {
-    return material_;
-  }
-  bool has_indices() const {
-    return has_indices_;
-  }
-  BoundingBox bounding_box() const {
-    return bb_;
-  }
-
- private:
-  std::uint32_t first_index_;
-  std::uint32_t index_count_;
-  std::uint32_t vertex_count_;
-  Material const& material_;
-  bool has_indices_;
-  BoundingBox bb_;
-};
-
-struct Mesh : noncopyable {
   Mesh(Device& device, glm::mat4 matrix);
   RNDRX_DEFAULT_MOVABLE(Mesh);
 
@@ -138,7 +55,7 @@ struct Mesh : noncopyable {
   void set_world_matrix(glm::mat4 world);
   void set_joint_matrix(std::size_t idx, glm::mat4 matrix);
   void set_num_joints(std::size_t count);
-  void add_primitive(Primitive primitive);
+  void add_primitive(DrawPrimitive primitive);
 
   struct UniformBlock {
     glm::mat4 world_matrix;
@@ -153,8 +70,7 @@ struct Mesh : noncopyable {
   UniformBlock* mapped_memory();
   vma::Buffer buffer_ = nullptr;
   vk::DescriptorBufferInfo descriptor_info_;
-  // UniformBlock uniform_block_;
-  std::vector<Primitive> primitives_;
+  std::vector<DrawPrimitive> primitives_;
   BoundingBox bb_;
   BoundingBox aabb_;
   // vk::DescriptorSet descriptor_set_;

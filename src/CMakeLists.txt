@@ -70,7 +70,12 @@ if(NOT tinygltf_POPULATED)
 endif()
 
 add_library(rndrx-common 
+    bounding_box.cpp
     tiny_gltf_impl.cpp)
+
+target_include_directories(rndrx-common
+    PUBLIC
+    ${PROJECT_SOURCE_DIR}/include)
 
 # When loading large files this file need to be optimised otherwise
 # debugging time is too long. 
@@ -80,13 +85,17 @@ set_source_files_properties(tiny_gltf_impl.cpp
 
 target_link_libraries(rndrx-common 
     PUBLIC 
-    tinygltf)
+    tinygltf
+    glm)
 
 target_compile_definitions(rndrx-common
     PUBLIC
     STBI_MSC_SECURE_CRT=1
     TINYGLTF_NO_STB_IMAGE_WRITE=1
-    TINYGLTF_USE_CPP14=1)
+    TINYGLTF_USE_CPP14=1
+    GLM_FORCE_DEFAULT_ALIGNED_GENTYPES=1
+    GLM_FORCE_DEPTH_ZERO_TO_ONE=1
+    GLM_FORCE_RADIANS=1)
 
 if(WIN32)
     add_subdirectory(dx12)

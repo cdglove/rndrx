@@ -10,6 +10,7 @@
 // distributed under the License is distributed on an "AS IS" BASIS,
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
+// limitations under the License.
 #include "model.hpp"
 
 #include <vulkan/vulkan.h>
@@ -141,48 +142,6 @@ NodeProperties get_node_properties_recursive(
 } // namespace
 
 namespace rndrx::vulkan::gltf {
-BoundingBox BoundingBox::get_aabb(glm::mat4 const& aligned_to) const {
-  glm::vec3 aabb_min = glm::vec3(aligned_to[3]);
-  glm::vec3 aabb_max = aabb_min;
-  glm::vec3 v0, v1;
-
-  glm::vec3 right = glm::vec3(aligned_to[0]);
-  v0 = right * min.x;
-  v1 = right * max.x;
-  aabb_min += glm::min(v0, v1);
-  aabb_max += glm::max(v0, v1);
-
-  glm::vec3 up = glm::vec3(aligned_to[1]);
-  v0 = up * min.y;
-  v1 = up * max.y;
-  aabb_min += glm::min(v0, v1);
-  aabb_max += glm::max(v0, v1);
-
-  glm::vec3 back = glm::vec3(aligned_to[2]);
-  v0 = back * min.z;
-  v1 = back * max.z;
-  aabb_min += glm::min(v0, v1);
-  aabb_max += glm::max(v0, v1);
-
-  return {aabb_min, aabb_max};
-}
-
-Primitive::Primitive(
-    std::uint32_t first_index,
-    std::uint32_t index_count,
-    std::uint32_t vertex_count,
-    Material const& material)
-    : first_index_(first_index)
-    , index_count_(index_count)
-    , vertex_count_(vertex_count)
-    , material_(material)
-    , has_indices_(index_count > 0){};
-
-void Primitive::set_bounding_box(glm::vec3 min, glm::vec3 max) {
-  bb_.min = min;
-  bb_.max = max;
-  bb_.valid = true;
-}
 
 Mesh::Mesh(Device& device, glm::mat4 matrix) {
   buffer_ = device.allocator().create_buffer(
@@ -216,7 +175,7 @@ void Mesh::set_num_joints(std::size_t count) {
   mapped_memory()->num_joints = static_cast<float>(count);
 }
 
-void Mesh::add_primitive(Primitive p) {
+void Mesh::add_primitive(DrawPrimitive p) {
   primitives_.push_back(std::move(p));
   if(p.bounding_box().valid && !bb_.valid) {
     bb_ = p.bounding_box();
@@ -397,6 +356,7 @@ void Model::create_materials(tinygltf::Model const& source) {
     };
 
     Material& material = materials.emplace_back();
+    #error "Need to alloc the descriptor set."
     material.double_sided = gltf_material.doubleSided;
 
     if(auto properties = get_value("baseColorTexture")) {
