@@ -356,12 +356,11 @@ void Model::create_materials(tinygltf::Model const& source) {
     };
 
     Material& material = materials.emplace_back();
-    #error "Need to alloc the descriptor set."
     material.double_sided = gltf_material.doubleSided;
 
     if(auto properties = get_value("baseColorTexture")) {
       material.base_colour_texture = &textures[properties->TextureIndex()];
-      material.tex_coord_sets.base_colour = properties->TextureTexCoord();
+      material.uv_sets.base_colour = properties->TextureTexCoord();
     }
 
     if(auto properties = get_value("baseColorFactor")) {
@@ -371,7 +370,7 @@ void Model::create_materials(tinygltf::Model const& source) {
 
     if(auto properties = get_value("metallicRoughnessTexture")) {
       material.metallic_roughness_texture = &textures[properties->TextureIndex()];
-      material.tex_coord_sets.metallic_roughness = properties->TextureTexCoord();
+      material.uv_sets.metallic_roughness = properties->TextureTexCoord();
     }
 
     if(auto properties = get_value("metallicFactor")) {
@@ -384,17 +383,17 @@ void Model::create_materials(tinygltf::Model const& source) {
 
     if(auto properties = get_value("normalTexture")) {
       material.normal_texture = &textures[properties->TextureIndex()];
-      material.tex_coord_sets.normal = properties->TextureTexCoord();
+      material.uv_sets.normal = properties->TextureTexCoord();
     }
 
     if(auto properties = get_value("emissiveTexture")) {
       material.emissive_texture = &textures[properties->TextureIndex()];
-      material.tex_coord_sets.emissive = properties->TextureTexCoord();
+      material.uv_sets.emissive = properties->TextureTexCoord();
     }
 
     if(auto properties = get_value("occlusionTexture")) {
       material.occlusion_texture = &textures[properties->TextureIndex()];
-      material.tex_coord_sets.occlusion = properties->TextureTexCoord();
+      material.uv_sets.occlusion = properties->TextureTexCoord();
     }
 
     if(auto property = get_additional_value("alphaMode")) {
@@ -423,7 +422,7 @@ void Model::create_materials(tinygltf::Model const& source) {
         auto index = spec_gloss_value.Get("index");
         material.extension.specular_glossiness_texture = &textures[index.Get<int>()];
         auto text_coord_set = spec_gloss_value.Get("texCoord");
-        material.tex_coord_sets.specular_glossiness = text_coord_set.Get<int>();
+        material.uv_sets.specular_glossiness = text_coord_set.Get<int>();
         material.pbr_workflows.specular_glossiness = true;
       }
 

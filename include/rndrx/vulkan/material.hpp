@@ -36,25 +36,27 @@ struct Material {
   Texture const* occlusion_texture = nullptr;
   Texture const* emissive_texture = nullptr;
   bool double_sided = false;
-  struct TexCoordSets {
+  
+  struct UvSets {
     std::uint8_t base_colour = 0;
     std::uint8_t metallic_roughness = 0;
     std::uint8_t specular_glossiness = 0;
     std::uint8_t normal = 0;
     std::uint8_t occlusion = 0;
     std::uint8_t emissive = 0;
-  } tex_coord_sets;
+  } uv_sets;
+
+  struct PbrWorkflows {
+    bool metallic_roughness = true;
+    bool specular_glossiness = false;
+  } pbr_workflows;
+
   struct Extension {
     Texture const* specular_glossiness_texture = nullptr;
     Texture const* diffuse_texture = nullptr;
     glm::vec4 diffuse_factor = glm::vec4(1.f);
     glm::vec3 specular_factor = glm::vec3(0.f);
   } extension;
-  struct PbrWorkflows {
-    bool metallic_roughness = true;
-    bool specular_glossiness = false;
-  } pbr_workflows;
-  VkDescriptorSet descriptor_set = VK_NULL_HANDLE;
 };
 
 } // namespace rndrx::vulkan
