@@ -138,50 +138,6 @@ NodeProperties get_node_properties_recursive(
 
 namespace rndrx::vulkan::gltf {
 
-Mesh::Mesh(Device& device, glm::mat4 matrix) {
-  buffer_ = device.allocator().create_buffer(
-      vk::BufferCreateInfo()
-          .setSize(sizeof(UniformBlock))
-          .setUsage(vk::BufferUsageFlagBits::eUniformBuffer));
-
-  set_world_matrix(matrix);
-
-  descriptor_info_ = vk::DescriptorBufferInfo(*buffer_.vk(), 0, sizeof(UniformBlock));
-};
-
-void Mesh::set_bounding_box(glm::vec3 min, glm::vec3 max) {
-  bb_.min = min;
-  bb_.max = max;
-  bb_.valid = true;
-}
-
-void Mesh::set_world_matrix(glm::mat4 world) {
-  // uniform_block_.world_matrix = world;
-  mapped_memory()->world_matrix = world;
-}
-
-void Mesh::set_joint_matrix(std::size_t idx, glm::mat4 matrix) {
-  // uniform_block_.joints[idx] = matrix;
-  mapped_memory()->joints[idx] = matrix;
-}
-
-void Mesh::set_num_joints(std::size_t count) {
-  // uniform_block_.num_joints = static_cast<float>(count);
-  mapped_memory()->num_joints = static_cast<float>(count);
-}
-
-void Mesh::add_primitive(DrawPrimitive p) {
-  primitives_.push_back(std::move(p));
-  if(p.bounding_box().valid && !bb_.valid) {
-    bb_ = p.bounding_box();
-  }
-  bb_.min = glm::min(bb_.min, p.bounding_box().min);
-  bb_.max = glm::max(bb_.max, p.bounding_box().max);
-}
-
-Mesh::UniformBlock* Mesh::mapped_memory() {
-  return static_cast<UniformBlock*>(buffer_.mapped_data());
-}
 
 Node::Node(Node const* parent)
     : parent(parent) {

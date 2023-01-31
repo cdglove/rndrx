@@ -24,14 +24,11 @@
 #include <vulkan/vulkan_raii.hpp>
 #include "rndrx/bounding_box.hpp"
 #include "rndrx/noncopyable.hpp"
-#include "rndrx/vulkan/draw_primitive.hpp"
+#include "rndrx/vulkan/mesh.hpp"
 #include "rndrx/vulkan/material.hpp"
 #include "rndrx/vulkan/texture.hpp"
-#include "rndrx/vulkan/vma/buffer.hpp"
-#include "rndrx/vulkan/vma/image.hpp"
 
-// Changing this value also requires updating the skinning shaders.
-constexpr std::size_t kMaxNumJoints = 128;
+#include "rndrx/vulkan/vma/image.hpp"
 
 namespace rndrx::vulkan {
 class Device;
@@ -39,42 +36,11 @@ class Texture;
 } // namespace rndrx::vulkan
 
 namespace tinygltf {
-class Image;
 class Model;
 class Node;
 } // namespace tinygltf
 
 namespace rndrx::vulkan::gltf {
-
-class Mesh : noncopyable {
- public:
-  Mesh(Device& device, glm::mat4 matrix);
-  RNDRX_DEFAULT_MOVABLE(Mesh);
-
-  void set_bounding_box(glm::vec3 min, glm::vec3 max);
-  void set_world_matrix(glm::mat4 world);
-  void set_joint_matrix(std::size_t idx, glm::mat4 matrix);
-  void set_num_joints(std::size_t count);
-  void add_primitive(DrawPrimitive primitive);
-
-  struct UniformBlock {
-    glm::mat4 world_matrix;
-    // cglover-todo(2023-01-22): Optimise this out. Every mesh is using way more
-    // memory than necessary.
-    std::array<glm::mat4, kMaxNumJoints> joints;
-    // Float because it aligns with the shader?
-    float num_joints = 0;
-  };
-
- private:
-  UniformBlock* mapped_memory();
-  vma::Buffer buffer_ = nullptr;
-  vk::DescriptorBufferInfo descriptor_info_;
-  std::vector<DrawPrimitive> primitives_;
-  BoundingBox bb_;
-  BoundingBox aabb_;
-  // vk::DescriptorSet descriptor_set_;
-};
 
 class Node;
 class Skin : noncopyable {
