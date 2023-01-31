@@ -120,7 +120,7 @@ struct AnimationSampler {
   enum class InterpolationType { Linear, Step, CubicSpline };
   InterpolationType interpolation;
   std::vector<float> inputs;
-  std::vector<glm::vec4> outputsVec4;
+  std::vector<glm::vec4> outputs;
 };
 
 struct Animation {

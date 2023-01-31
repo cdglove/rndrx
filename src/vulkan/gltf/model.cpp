@@ -14,6 +14,7 @@
 #include "model.hpp"
 
 #include <vulkan/vulkan.h>
+#include <algorithm>
 #include <cstddef>
 #include <filesystem>
 #include <numeric>
@@ -32,12 +33,6 @@
 #include "tiny_gltf.h"
 
 constexpr int kTinyGltfNotSpecified = -1;
-
-// ERROR is already defined in wingdi.h and collides with a define in the Draco headers
-#if defined(_WIN32) && defined(ERROR) && defined(TINYGLTF_ENABLE_DRACO)
-#  undef ERROR
-#  pragma message("ERROR constant already defined, undefining")
-#endif
 
 namespace {
 
@@ -95,7 +90,7 @@ rndrx::vulkan::gltf::Node const* node_from_index(
   for(auto const& node : nodes) {
     if(auto found = find_node_recursive(&node, index)) {
       // If this is true then we don't need this loop
-      // we can just detch directly from the array.
+      // we can just fetch directly from the array.
       RNDRX_ASSERT(std::distance(nodes.data(), found) == index);
       return found;
     }
@@ -572,7 +567,8 @@ void Model::create_node_recursive(
       int joint_component_type = 0;
 
       // Position attribute is required
-      assert(primitive.attributes.find("POSITION") != primitive.attributes.end());
+      RNDRX_ASSERT(
+          primitive.attributes.find("POSITION") != primitive.attributes.end());
 
       struct BufferExtractor {
         BufferExtractor(tinygltf::Model const& source, tinygltf::Accessor const& accessor)
@@ -806,7 +802,7 @@ void Model::create_animations(tinygltf::Model const& source) {
     }
 
     for(auto&& samp : anim.samplers) {
-      AnimationSampler sampler;
+      AnimationSampler& sampler = animation.samplers.emplace_back();
 
       if(samp.interpolation == "LINEAR") {
         sampler.interpolation = AnimationSampler::InterpolationType::Linear;
@@ -818,53 +814,44 @@ void Model::create_animations(tinygltf::Model const& source) {
         sampler.interpolation = AnimationSampler::InterpolationType::CubicSpline;
       }
 
-      // Read sampler input time values
       {
-        const tinygltf::Accessor& accessor = source.accessors[samp.input];
-        const tinygltf::BufferView& bufferView = source.bufferViews[accessor.bufferView];
-        const tinygltf::Buffer& buffer = source.buffers[bufferView.buffer];
+        tinygltf::Accessor const& accessor = source.accessors[samp.input];
+        tinygltf::BufferView const& buffer_view = source.bufferViews[accessor.bufferView];
+        tinygltf::Buffer const& buffer = source.buffers[buffer_view.buffer];
 
-        assert(accessor.componentType == TINYGLTF_COMPONENT_TYPE_FLOAT);
+        RNDRX_ASSERT(accessor.componentType == TINYGLTF_COMPONENT_TYPE_FLOAT);
 
-        const void* data_ptr = &buffer.data[accessor.byteOffset + bufferView.byteOffset];
-        const float* buf = static_cast<const float*>(data_ptr);
-        for(size_t index = 0; index < accessor.count; index++) {
-          sampler.inputs.push_back(buf[index]);
-        }
-
-        for(auto input : sampler.inputs) {
-          if(input < animation.start) {
-            animation.start = input;
-          };
-          if(input > animation.end) {
-            animation.end = input;
-          }
-        }
+        void const* data_ptr = &buffer.data[accessor.byteOffset + buffer_view.byteOffset];
+        float const* buf = static_cast<const float*>(data_ptr);
+        sampler.inputs.assign(buf, buf + accessor.count);
+        auto start_end = std::ranges::minmax_element(sampler.inputs);
+        animation.start = *start_end.min;
+        animation.end = *start_end.max;
       }
 
-      // Read sampler output T/R/S values
       {
-        const tinygltf::Accessor& accessor = source.accessors[samp.output];
-        const tinygltf::BufferView& bufferView = source.bufferViews[accessor.bufferView];
-        const tinygltf::Buffer& buffer = source.buffers[bufferView.buffer];
+        tinygltf::Accessor const& accessor = source.accessors[samp.output];
+        tinygltf::BufferView const& buffer_view = source.bufferViews[accessor.bufferView];
+        tinygltf::Buffer const& buffer = source.buffers[buffer_view.buffer];
 
-        assert(accessor.componentType == TINYGLTF_COMPONENT_TYPE_FLOAT);
+        RNDRX_ASSERT(accessor.componentType == TINYGLTF_COMPONENT_TYPE_FLOAT);
 
-        const void* data_ptr = &buffer.data[accessor.byteOffset + bufferView.byteOffset];
+        void const* data_ptr = &buffer.data[accessor.byteOffset + buffer_view.byteOffset];
 
         switch(accessor.type) {
           case TINYGLTF_TYPE_VEC3: {
-            const glm::vec3* buf = static_cast<const glm::vec3*>(data_ptr);
-            for(size_t index = 0; index < accessor.count; index++) {
-              sampler.outputsVec4.push_back(glm::vec4(buf[index], 0.f));
-            }
+            glm::vec3 const* buf = static_cast<glm::vec3 const*>(data_ptr);
+            sampler.inputs.resize(accessor.count);
+            std::transform(
+                buf,
+                buf + accessor.count,
+                sampler.outputs.begin(),
+                [](glm::vec3 const& v) { return glm::vec4(v, 0.f); });
             break;
           }
           case TINYGLTF_TYPE_VEC4: {
-            const glm::vec4* buf = static_cast<const glm::vec4*>(data_ptr);
-            for(size_t index = 0; index < accessor.count; index++) {
-              sampler.outputsVec4.push_back(buf[index]);
-            }
+            glm::vec4 const* buf = static_cast<glm::vec4 const*>(data_ptr);
+            sampler.outputs.assign(buf, buf + accessor.count);
             break;
           }
           default: {
@@ -873,8 +860,6 @@ void Model::create_animations(tinygltf::Model const& source) {
           }
         }
       }
-
-      animation.samplers.push_back(sampler);
     }
 
     // Channels
@@ -891,7 +876,7 @@ void Model::create_animations(tinygltf::Model const& source) {
         channel.path = AnimationChannel::PathType::Scale;
       }
       if(source.target_path == "weights") {
-        std::cout << "weights not yet supported, skipping channel" << std::endl;
+        LOG(Info) << "weights not yet supported, skipping channel" << std::endl;
         continue;
       }
       channel.samplerIndex = source.sampler;
@@ -913,19 +898,16 @@ void Model::create_skins(tinygltf::Model const& source) {
     auto& new_skin = skins.back();
     new_skin.name = skin.name;
 
-    // Find skeleton root node
     if(skin.skeleton > kTinyGltfNotSpecified) {
       new_skin.skeleton_root = node_from_index(nodes, skin.skeleton);
     }
 
-    // Find joint nodes
     for(int joint_index : skin.joints) {
       if(auto joint_node = node_from_index(nodes, joint_index)) {
         new_skin.joints.push_back(joint_node);
       }
     }
 
-    // Get inverse bind matrices from buffer
     if(skin.inverseBindMatrices > -1) {
       auto const& accessor = source.accessors[skin.inverseBindMatrices];
       auto const& bufferView = source.bufferViews[accessor.bufferView];
@@ -1174,11 +1156,11 @@ Model load_model_from_file(Device& device, std::string_view path) {
   }
 
   if(!err.empty()) {
-    rndrx::throw_runtime_error(err.c_str());
+    throw_runtime_error(err.c_str());
   }
 
   if(!file_loaded) {
-    rndrx::throw_runtime_error("Failed to parse glTF");
+    throw_runtime_error("Failed to parse glTF");
   }
 
   return Model(device, model);
