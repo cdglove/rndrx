@@ -87,6 +87,7 @@ class Application : noncopyable {
   void main_loop();
   void initialise_device_resources(SubmissionContext& ctx);
   void update(float dt_s);
+  void update_adapter_info(float dt_s);
   void render(SubmissionContext& ctx);
   void present(PresentationContext& ctx);
 

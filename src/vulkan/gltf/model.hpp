@@ -24,8 +24,9 @@
 #include <vulkan/vulkan_raii.hpp>
 #include "rndrx/bounding_box.hpp"
 #include "rndrx/noncopyable.hpp"
-#include "rndrx/vulkan/mesh.hpp"
+#include "rndrx/vulkan/animation.hpp"
 #include "rndrx/vulkan/material.hpp"
+#include "rndrx/vulkan/mesh.hpp"
 #include "rndrx/vulkan/texture.hpp"
 
 #include "rndrx/vulkan/vma/image.hpp"
@@ -75,31 +76,12 @@ class Node : noncopyable {
   BoundingBox aabb;
 };
 
-struct AnimationChannel {
-  enum class PathType { Translation, Rotation, Scale };
-  PathType path;
-  Node const* node;
-  uint32_t samplerIndex;
-};
-
-struct AnimationSampler {
-  enum class InterpolationType { Linear, Step, CubicSpline };
-  InterpolationType interpolation;
-  std::vector<float> inputs;
-  std::vector<glm::vec4> outputs;
-};
-
-struct Animation {
-  std::string name;
-  std::vector<AnimationSampler> samplers;
-  std::vector<AnimationChannel> channels;
-  float start = std::numeric_limits<float>::max();
-  float end = std::numeric_limits<float>::min();
-};
-
-class Model {
+class Model : noncopyable {
  public:
   Model(Device& device, tinygltf::Model const& source);
+
+  RNDRX_DEFAULT_MOVABLE(Model);
+
   struct Vertex {
     glm::vec3 pos;
     glm::vec3 normal;
@@ -110,51 +92,28 @@ class Model {
     glm::vec4 colour;
   };
 
-  struct Dimensions {
-    glm::vec3 min = glm::vec3(std::numeric_limits<float>::max());
-    glm::vec3 max = glm::vec3(std::numeric_limits<float>::min());
-  };
-
-  struct LoaderInfo {
-    std::vector<std::uint32_t> index_buffer;
-    std::vector<Vertex> vertex_buffer;
-    std::uint32_t index_position = 0;
-    std::uint32_t vertex_position = 0;
-  };
-
   void draw_node(Node* node, vk::CommandBuffer command_buffer);
   void draw(vk::CommandBuffer command_buffer);
   void calculate_bounding_box(Node* node, Node* parent);
   void get_scene_dimensions();
   void update_animation(std::uint32_t index, float time);
 
-  vma::Buffer vertices = nullptr;
-  vma::Buffer indices = nullptr;
-  std::vector<Node> nodes;
-  std::vector<Node*> linear_nodes;
-  std::vector<Skin> skins;
-  std::vector<Texture> textures;
-  std::vector<vk::raii::Sampler> texture_samplers;
-  std::vector<Material> materials;
-  std::vector<Animation> animations;
-  std::vector<std::string> extensions;
-  glm::mat4 aabb;
-
  private:
-  void create_texture_samplers(Device& device, tinygltf::Model const& source);
-  void create_textures(Device& device, tinygltf::Model const& source);
-  void create_materials(tinygltf::Model const& source);
-  void create_animations(tinygltf::Model const& source);
-  void create_skins(tinygltf::Model const& source);
-  void create_nodes(Device& device, tinygltf::Model const& source, LoaderInfo& loader_info);
-  void create_node_recursive(
+  void create_device_buffers(
       Device& device,
-      tinygltf::Model const& source,
-      tinygltf::Node const& node,
-      Node* parent,
-      std::uint32_t node_index,
-      LoaderInfo& loader_info);
-  void create_device_buffers(Device& device, LoaderInfo const& loader_info);
+      std::vector<std::uint32_t> const& index_buffer,
+      std::vector<Model::Vertex> const& vertex_buffer);
+
+  vma::Buffer vertices_ = nullptr;
+  vma::Buffer indices_ = nullptr;
+  std::vector<Node> nodes_;
+  std::vector<Skin> skins_;
+  std::vector<Texture> textures_;
+  std::vector<vk::raii::Sampler> texture_samplers_;
+  std::vector<Material> materials_;
+  std::vector<Animation> animations_;
+  std::vector<std::string> extensions_;
+  glm::mat4 aabb_;
 };
 
 Model load_model_from_file(Device& device, std::string_view path);

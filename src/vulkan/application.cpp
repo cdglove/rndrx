@@ -413,6 +413,12 @@ void Application::initialise_device_resources(SubmissionContext& ctx) {
 void Application::update(float dt_s) {
   on_begin_update();
 
+  update_adapter_info(dt_s);
+
+  on_end_update();
+}
+
+void Application::update_adapter_info(float dt_s) {
   if(ImGui::Begin("Adapter Info")) {
     ImGui::LabelText("", "Framerate: %3.1ffps (%3.2fms)", 1 / dt_s, dt_s * 1000);
     auto const& selected = selected_device();
@@ -427,7 +433,6 @@ void Application::update(float dt_s) {
                       << selected_properties.deviceName << "' to '"
                       << candidate_properties.deviceName << "' detected.\n";
             run_result_ = RunResult::Restart;
-            return;
           }
         }
       }
@@ -435,8 +440,6 @@ void Application::update(float dt_s) {
     }
     ImGui::End();
   }
-
-  on_end_update();
 }
 
 void Application::render(SubmissionContext& ctx) {
