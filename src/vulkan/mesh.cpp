@@ -29,9 +29,7 @@ MeshPrimitive::MeshPrimitive(
 }
 
 void MeshPrimitive::set_bounding_box(glm::vec3 min, glm::vec3 max) {
-  bb_.min = min;
-  bb_.max = max;
-  bb_.valid = true;
+  bb_ = {min, max};
 }
 
 Mesh::Mesh(Device& device, glm::mat4 matrix) {
@@ -47,9 +45,7 @@ Mesh::Mesh(Device& device, glm::mat4 matrix) {
 };
 
 void Mesh::set_bounding_box(glm::vec3 min, glm::vec3 max) {
-  bb_.min = min;
-  bb_.max = max;
-  bb_.valid = true;
+  bb_ = {min, max};
 }
 
 void Mesh::set_world_matrix(glm::mat4 world) {
@@ -69,11 +65,10 @@ void Mesh::set_num_joints(std::size_t count) {
 
 void Mesh::add_primitive(MeshPrimitive p) {
   primitives_.push_back(std::move(p));
-  if(p.bounding_box().valid && !bb_.valid) {
+  if(p.bounding_box().valid() && !bb_.valid()) {
     bb_ = p.bounding_box();
   }
-  bb_.min = glm::min(bb_.min, p.bounding_box().min);
-  bb_.max = glm::max(bb_.max, p.bounding_box().max);
+  bb_ = merge(bb_, p.bounding_box());
 }
 
 Mesh::UniformBlock* Mesh::mapped_memory() {

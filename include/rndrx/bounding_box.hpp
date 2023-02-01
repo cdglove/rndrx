@@ -21,16 +21,31 @@ namespace rndrx {
 struct BoundingBox {
   BoundingBox() = default;
   BoundingBox(glm::vec3 min, glm::vec3 max)
-      : min(min)
-      , max(max) {
+      : min_(min)
+      , max_(max) {
   }
 
   BoundingBox get_aabb(glm::mat4 const& aligned_to) const;
 
-  glm::vec3 min;
-  glm::vec3 max;
-  bool valid = false;
+  bool valid() const {
+    return min_ != max_;
+  }
+
+  glm::vec3 const& min() const {
+    return min_;
+  }
+
+  glm::vec3 const& max() const {
+    return max_;
+  }
+
+ private:
+  glm::vec3 min_{};
+  glm::vec3 max_{};
 };
+
+BoundingBox merge(BoundingBox const& a, BoundingBox const& b);
+
 } // namespace rndrx
 
 #endif // RNDRX_BOUNDINGBOX_HPP_

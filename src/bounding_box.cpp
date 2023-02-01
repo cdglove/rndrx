@@ -21,24 +21,28 @@ BoundingBox BoundingBox::get_aabb(glm::mat4 const& aligned_to) const {
   glm::vec3 v0, v1;
 
   glm::vec3 right = glm::vec3(aligned_to[0]);
-  v0 = right * min.x;
-  v1 = right * max.x;
+  v0 = right * min_.x;
+  v1 = right * max_.x;
   aabb_min += glm::min(v0, v1);
   aabb_max += glm::max(v0, v1);
 
   glm::vec3 up = glm::vec3(aligned_to[1]);
-  v0 = up * min.y;
-  v1 = up * max.y;
+  v0 = up * min_.y;
+  v1 = up * max_.y;
   aabb_min += glm::min(v0, v1);
   aabb_max += glm::max(v0, v1);
 
   glm::vec3 back = glm::vec3(aligned_to[2]);
-  v0 = back * min.z;
-  v1 = back * max.z;
+  v0 = back * min_.z;
+  v1 = back * max_.z;
   aabb_min += glm::min(v0, v1);
   aabb_max += glm::max(v0, v1);
 
   return {aabb_min, aabb_max};
+}
+
+BoundingBox merge(BoundingBox const& a, BoundingBox const& b) {
+  return {glm::min(a.min(), b.min()), glm::max(a.max(), b.max())};
 }
 
 } // namespace rndrx
