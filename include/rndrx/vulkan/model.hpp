@@ -11,8 +11,8 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-#ifndef RNDRX_VULKAN_GLTF_MODEL_HPP_
-#define RNDRX_VULKAN_GLTF_MODEL_HPP_
+#ifndef RNDRX_VULKAN_MODEL_HPP_
+#define RNDRX_VULKAN_MODEL_HPP_
 #pragma once
 
 #include <glm/glm.hpp>
@@ -28,20 +28,16 @@
 #include "rndrx/vulkan/material.hpp"
 #include "rndrx/vulkan/mesh.hpp"
 #include "rndrx/vulkan/texture.hpp"
-
 #include "rndrx/vulkan/vma/image.hpp"
-
-namespace rndrx::vulkan {
-class Device;
-class Texture;
-} // namespace rndrx::vulkan
 
 namespace tinygltf {
 class Model;
-class Node;
 } // namespace tinygltf
 
-namespace rndrx::vulkan::gltf {
+namespace rndrx::vulkan {
+
+class Device;
+class Texture;
 
 class Node;
 class Skin : noncopyable {
@@ -78,6 +74,7 @@ class Node : noncopyable {
 
 class Model : noncopyable {
  public:
+  // Defined in rndrx/vulkan/gltf/model.cpp
   Model(Device& device, tinygltf::Model const& source);
 
   RNDRX_DEFAULT_MOVABLE(Model);
@@ -112,12 +109,11 @@ class Model : noncopyable {
   std::vector<vk::raii::Sampler> texture_samplers_;
   std::vector<Material> materials_;
   std::vector<Animation> animations_;
-  std::vector<std::string> extensions_;
   glm::mat4 aabb_;
 };
 
 Model load_model_from_file(Device& device, std::string_view path);
 
-} // namespace rndrx::vulkan::gltf
+} // namespace rndrx::vulkan
 
-#endif // RNDRX_VULKAN_GLTF_MODEL_HPP_
+#endif // RNDRX_VULKAN_MODEL_HPP_

@@ -26,13 +26,14 @@
 #include "rndrx/vulkan/composite_render_pass.hpp"
 #include "rndrx/vulkan/device.hpp"
 #include "rndrx/vulkan/imgui_render_pass.hpp"
+#include "rndrx/vulkan/model.hpp"
 #include "rndrx/vulkan/render_context.hpp"
 #include "rndrx/vulkan/shader_cache.hpp"
 #include "rndrx/vulkan/submission_context.hpp"
 #include "rndrx/vulkan/swapchain.hpp"
 #include "rndrx/vulkan/window.hpp"
 
-#include "gltf/model.hpp"
+#include "rndrx/vulkan/gltf/model.hpp"
 
 namespace rndrx::vulkan {
 
@@ -457,9 +458,10 @@ void Application::render(SubmissionContext& ctx) {
 void Application::on_pre_create_device_objects(){};
 
 void Application::on_device_objects_created() {
-  rndrx::vulkan::gltf::Model m = rndrx::vulkan::gltf::load_model_from_file(
-      device_objects_->device,
+  tinygltf::Model m = gltf::load_model_from_file(
       "assets/models/NewSponza_Main_glTF_002.gltf");
+
+  Model mr(device_objects_->device, m);
 
   render_objects_ = std::make_unique<RenderObjects>(*this);
 };

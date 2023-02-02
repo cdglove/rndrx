@@ -18,13 +18,13 @@
 #include <glm/glm.hpp>
 
 namespace rndrx::vulkan {
-namespace gltf {
+
 class Node;
-}
+
 struct AnimationChannel {
   enum class PathType { Translation, Rotation, Scale };
   PathType path;
-  gltf::Node const* node;
+  Node const* node;
   uint32_t samplerIndex;
 };
 

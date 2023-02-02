@@ -46,6 +46,7 @@ set(SOURCES
     device.cpp
     gltf/model.cpp
     mesh.cpp
+    model.cpp
     imgui_render_pass.cpp
     scene.cpp
     shader_cache.cpp
