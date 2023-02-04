@@ -15,28 +15,36 @@
 #define RNDRX_VULKAN_DRAWPRIMITIVE_HPP_
 #pragma once
 
+#include <array>
+#include <cstddef>
 #include <cstdint>
-#include "rndrx/noncopyable.hpp"
+#include <glm/ext/matrix_float4x4.hpp>
+#include <glm/ext/vector_float3.hpp>
+#include <vector>
+#include <vulkan/vulkan.hpp>
 #include "rndrx/bounding_box.hpp"
+#include "rndrx/noncopyable.hpp"
 #include "rndrx/vulkan/vma/buffer.hpp"
-#include <glm/glm.hpp>
+
+namespace rndrx { namespace vulkan {
+class Device;
+struct Material;
+}} // namespace rndrx::vulkan
 
 namespace rndrx::vulkan {
 
 // Changing this value also requires updating the skinning shaders.
 constexpr std::size_t kMaxNumJoints = 128;
 
-struct Material;
-
 class MeshPrimitive : noncopyable {
  public:
   MeshPrimitive(
       std::uint32_t first_index,
       std::uint32_t index_count,
-      std::uint32_t vertex_count,
       Material const& material);
 
   void set_bounding_box(glm::vec3 min, glm::vec3 max);
+  void draw(vk::CommandBuffer command_buffer) const;
 
   std::uint32_t first_index() const {
     return first_index_;
@@ -44,10 +52,6 @@ class MeshPrimitive : noncopyable {
 
   std::uint32_t index_count() const {
     return index_count_;
-  }
-
-  std::uint32_t vertex_count() const {
-    return vertex_count_;
   }
 
   Material const& material() const {
@@ -65,7 +69,6 @@ class MeshPrimitive : noncopyable {
  private:
   std::uint32_t first_index_;
   std::uint32_t index_count_;
-  std::uint32_t vertex_count_;
   Material const& material_;
   BoundingBox bb_;
 };
@@ -75,6 +78,7 @@ class Mesh : noncopyable {
   Mesh(Device& device, glm::mat4 matrix);
   RNDRX_DEFAULT_MOVABLE(Mesh);
 
+  void draw(vk::CommandBuffer command_buffer) const;
   void set_bounding_box(glm::vec3 min, glm::vec3 max);
   void set_world_matrix(glm::mat4 world);
   void set_joint_matrix(std::size_t idx, glm::mat4 matrix);

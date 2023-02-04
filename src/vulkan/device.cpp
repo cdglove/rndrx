@@ -13,10 +13,11 @@
 // limitations under the License.
 #include "rndrx/vulkan/device.hpp"
 
+#include <vulkan/vulkan_core.h>
+#include <array>
 #include <vulkan/vulkan.hpp>
-#include "rndrx/throw_exception.hpp"
-#include "rndrx/to_vector.hpp"
 #include "rndrx/vulkan/application.hpp"
+#include "rndrx/vulkan/vma/allocator.hpp"
 
 namespace rndrx::vulkan {
 Device::Device(Application const& app) {

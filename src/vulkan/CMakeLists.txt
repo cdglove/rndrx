@@ -34,17 +34,17 @@ FetchContent_MakeAvailable(vma)
 
 add_custom_target(vulkan_shaders ALL)
 add_vulkan_vertex_shader(TARGET vulkan_shaders SOURCE ../../assets/shaders/fullscreen_quad.hlsl ENTRY_POINT VSMain)
-add_vulkan_vertex_shader(TARGET vulkan_shaders SOURCE ../../assets/shaders/static_model.hlsl ENTRY_POINT VSMain)
+add_vulkan_vertex_shader(TARGET vulkan_shaders SOURCE ../../assets/shaders/simple_static_model.hlsl ENTRY_POINT VSMain)
 add_vulkan_fragment_shader(TARGET vulkan_shaders SOURCE ../../assets/shaders/fullscreen_quad.hlsl ENTRY_POINT CopyImageOpaque)
 add_vulkan_fragment_shader(TARGET vulkan_shaders SOURCE ../../assets/shaders/fullscreen_quad.hlsl ENTRY_POINT BlendImage)
 add_vulkan_fragment_shader(TARGET vulkan_shaders SOURCE ../../assets/shaders/fullscreen_quad.hlsl ENTRY_POINT BlendImageInv)
-add_vulkan_fragment_shader(TARGET vulkan_shaders SOURCE ../../assets/shaders/static_model.hlsl ENTRY_POINT Phong)
+add_vulkan_fragment_shader(TARGET vulkan_shaders SOURCE ../../assets/shaders/simple_static_model.hlsl ENTRY_POINT Phong)
 
 set(SOURCES 
     application.cpp
     composite_render_pass.cpp
     device.cpp
-    gltf/model.cpp
+    gltf_model_creator.cpp
     mesh.cpp
     model.cpp
     imgui_render_pass.cpp

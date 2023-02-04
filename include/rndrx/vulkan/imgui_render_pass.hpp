@@ -15,20 +15,25 @@
 #define RNDRX_VULKAN_IMGUIRENDERPASS_HPP_
 #pragma once
 
-#include <vulkan/vulkan.hpp>
+#include <vulkan/vulkan_core.h>
+#include <memory>
+#include <vector>
+#include <vulkan/vulkan_raii.hpp>
 #include "render_target.hpp"
 #include "rndrx/noncopyable.hpp"
-#include "vma/allocator.hpp"
 #include "vma/image.hpp"
 
 class ImDrawData;
 class ImDrawList;
-
 namespace rndrx::vulkan {
 class Application;
-class Window;
-class Swapchain;
+class Device;
 class SubmissionContext;
+class Swapchain;
+class Window;
+} // namespace rndrx::vulkan
+
+namespace rndrx::vulkan {
 
 class ImGuiRenderPass : noncopyable {
  public:

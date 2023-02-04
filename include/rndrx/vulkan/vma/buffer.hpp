@@ -15,15 +15,12 @@
 #define RNDRX_VULKAN_VMA_BUFFER_HPP_
 #pragma once
 
+#include <cstddef>
+#include <vulkan/vulkan.hpp>
 #include <vulkan/vulkan_raii.hpp>
 #include "rndrx/noncopyable.hpp"
 #include "vk_mem_alloc.h"
-
-namespace vk {
-class Instance;
-class Device;
-class PhysicalDevice;
-}; // namespace vk
+namespace rndrx { namespace vulkan { namespace vma { class Allocator; } } }
 
 namespace rndrx::vulkan {
 class Device;

@@ -1,5 +1,11 @@
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
+#include <stdint.h>
+#include <vulkan/vulkan_core.h>
+#include <array>
+#include <utility>
+#include <vector>
+#include <vulkan/vulkan.hpp>
 #include <vulkan/vulkan_raii.hpp>
 
 std::vector<const char*> GetRequiredExtensionNames() {

@@ -13,19 +13,26 @@
 // limitations under the License.
 #include "rndrx/vulkan/mesh.hpp"
 
+#include <type_traits>
+#include <vulkan/vulkan_raii.hpp>
+#include <glm/detail/type_mat4x4.hpp>
 #include "rndrx/vulkan/device.hpp"
+#include "rndrx/vulkan/vma/allocator.hpp"
 
 namespace rndrx::vulkan {
 
 MeshPrimitive::MeshPrimitive(
     std::uint32_t first_index,
     std::uint32_t index_count,
-    std::uint32_t vertex_count,
     Material const& material)
     : first_index_(first_index)
     , index_count_(index_count)
-    , vertex_count_(vertex_count)
     , material_(material) {
+}
+
+void MeshPrimitive::draw(vk::CommandBuffer command_buffer) const {
+  //command_buffer.b
+  command_buffer.drawIndexed(index_count_, 1, first_index_, 0, 0);
 }
 
 void MeshPrimitive::set_bounding_box(glm::vec3 min, glm::vec3 max) {
@@ -43,6 +50,13 @@ Mesh::Mesh(Device& device, glm::mat4 matrix) {
   descriptor_info_ =
       vk::DescriptorBufferInfo(*uniform_buffer_.vk(), 0, sizeof(UniformBlock));
 };
+
+void Mesh::draw(vk::CommandBuffer command_buffer) const {
+  //command_buffer.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, 
+  for(auto& primitive : primitives_) {
+    primitive.draw(command_buffer);
+  }
+}
 
 void Mesh::set_bounding_box(glm::vec3 min, glm::vec3 max) {
   bb_ = {min, max};

@@ -13,7 +13,9 @@
 // limitations under the License.
 #include "rndrx/vulkan/imgui_render_pass.hpp"
 
+#include <array>
 #include <memory>
+#include <span>
 #include <vulkan/vulkan.hpp>
 #include "imgui.h"
 #include "imgui_impl_glfw.h"
@@ -22,6 +24,9 @@
 #include "rndrx/vulkan/application.hpp"
 #include "rndrx/vulkan/device.hpp"
 #include "rndrx/vulkan/submission_context.hpp"
+#include "rndrx/vulkan/swapchain.hpp"
+#include "rndrx/vulkan/vma/allocator.hpp"
+#include "rndrx/vulkan/vma/image.hpp"
 #include "rndrx/vulkan/window.hpp"
 
 namespace rndrx::vulkan {

@@ -11,11 +11,11 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-#include <GLFW/glfw3.h>
 #include <iostream>
+#include <span>
+#include <vulkan/vulkan.hpp>
+#include <vulkan/vulkan_raii.hpp>
 #include "rndrx/vulkan/application.hpp"
-#include "rndrx/vulkan/composite_render_pass.hpp"
-#include "rndrx/vulkan/imgui_render_pass.hpp"
 
 namespace {
 void choose_graphics_device(rndrx::vulkan::Application& app) {

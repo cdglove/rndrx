@@ -13,10 +13,14 @@
 // limitations under the License.
 #include "rndrx/vulkan/composite_render_pass.hpp"
 
+#include <vulkan/vulkan_core.h>
+#include <array>
+#include <type_traits>
+#include <vector>
+#include "rndrx/vulkan/device.hpp"
 #include "rndrx/vulkan/render_context.hpp"
 #include "rndrx/vulkan/shader_cache.hpp"
 #include "rndrx/vulkan/submission_context.hpp"
-#include "rndrx/vulkan/device.hpp"
 
 namespace rndrx::vulkan {
 
@@ -29,14 +33,13 @@ void CompositeRenderPass::render(
   vk::ClearValue clear_value;
   clear_value.color.setFloat32({0, 1, 1, 0});
 
-  vk::RenderPassBeginInfo begin_pass;
-  begin_pass //
-      .setRenderPass(*render_pass_)
-      .setFramebuffer(rc.framebuffer())
-      .setRenderArea(rc.extents())
-      .setClearValues(clear_value);
-
-  sc.command_buffer().beginRenderPass(begin_pass, vk::SubpassContents::eInline);
+  sc.command_buffer().beginRenderPass(
+      vk::RenderPassBeginInfo()
+          .setRenderPass(*render_pass_)
+          .setFramebuffer(rc.framebuffer())
+          .setRenderArea(rc.extents())
+          .setClearValues(clear_value),
+      vk::SubpassContents::eInline);
 
   cb.bindPipeline(vk::PipelineBindPoint::eGraphics, *copy_image_pipeline_);
 

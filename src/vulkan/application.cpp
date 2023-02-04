@@ -33,7 +33,8 @@
 #include "rndrx/vulkan/swapchain.hpp"
 #include "rndrx/vulkan/window.hpp"
 
-#include "rndrx/vulkan/gltf/model.hpp"
+#include "rndrx/vulkan/gltf_model_creator.hpp"
+#include "tiny_gltf.h"
 
 namespace rndrx::vulkan {
 
@@ -59,8 +60,8 @@ ShaderCache load_essential_shaders(Device& device) {
   loader.load("fullscreen_quad.copyimageopaque");
   loader.load("fullscreen_quad.blendimageinv");
   loader.load("fullscreen_quad.blendimage");
-  loader.load("static_model.vsmain");
-  loader.load("static_model.phong");
+  loader.load("simple_static_model.vsmain");
+  loader.load("simple_static_model.phong");
   return cache;
 }
 
@@ -461,7 +462,8 @@ void Application::on_device_objects_created() {
   tinygltf::Model m = gltf::load_model_from_file(
       "assets/models/NewSponza_Main_glTF_002.gltf");
 
-  Model mr(device_objects_->device, m);
+  GltfModelCreator creator(m);
+  Model mr(device_objects_->device, creator);
 
   render_objects_ = std::make_unique<RenderObjects>(*this);
 };

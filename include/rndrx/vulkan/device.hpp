@@ -15,17 +15,19 @@
 #define RNDRX_VULKAN_DEVICE_HPP_
 #pragma once
 
+#include <cstdint>
+#include <type_traits>
+#include <vector>
 #include <vulkan/vulkan.hpp>
-#include <vulkan/vulkan_enums.hpp>
-#include <vulkan/vulkan_handles.hpp>
 #include <vulkan/vulkan_raii.hpp>
-#include <vulkan/vulkan_structs.hpp>
 #include "rndrx/noncopyable.hpp"
 #include "vma/allocator.hpp"
 
-namespace rndrx::vulkan {
-
+namespace rndrx { namespace vulkan {
 class Application;
+}} // namespace rndrx::vulkan
+
+namespace rndrx::vulkan {
 
 class Device : noncopyable {
  public:

@@ -11,7 +11,7 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-#include "rndrx/vulkan/gltf/model.hpp"
+#include "rndrx/vulkan/gltf_model_creator.hpp"
 
 #include <vulkan/vulkan.h>
 #include <algorithm>
@@ -71,9 +71,7 @@ vk::Filter to_vk_filter_mode(std::int32_t gltf_filter_mode) {
   return vk::Filter::eLinear;
 }
 
-Node const* find_node_recursive(
-    Node const& node,
-    uint32_t index) {
+Node const* find_node_recursive(Node const& node, uint32_t index) {
   if(node.index == index) {
     return &node;
   }
@@ -87,9 +85,7 @@ Node const* find_node_recursive(
   return nullptr;
 }
 
-Node const* node_from_index(
-    std::span<const Node> nodes,
-    std::uint32_t index) {
+Node const* node_from_index(std::span<const Node> nodes, std::uint32_t index) {
   for(auto const& node : nodes) {
     if(auto found = find_node_recursive(&node, index)) {
       // If this is true then we don't need this loop
@@ -136,20 +132,11 @@ NodeProperties get_node_properties_recursive(
 
   return ret;
 }
+} // namespace
 
-struct VertexIndexBufferInfo {
-  // cglover-todo: Optimise these out. This should just contain the staging buffer.
-  std::vector<std::uint32_t> index_buffer;
-  std::vector<rndrx::vulkan::Model::Vertex> vertex_buffer;
-  std::uint32_t index_position = 0;
-  std::uint32_t vertex_position = 0;
-};
-
-std::vector<vk::raii::Sampler> create_texture_samplers(
-    Device& device,
-    tinygltf::Model const& source) {
+std::vector<vk::raii::Sampler> GltfModelCreator::create_texture_samplers(Device& device) {
   std::vector<vk::raii::Sampler> texture_samplers;
-  for(auto&& gltf_sampler : source.samplers) {
+  for(auto&& gltf_sampler : source_.samplers) {
     auto min_filter = to_vk_filter_mode(gltf_sampler.minFilter);
     auto mag_filter = to_vk_filter_mode(gltf_sampler.magFilter);
     auto address_mode_u = to_vk_sampler_address(gltf_sampler.wrapS);
@@ -200,13 +187,12 @@ std::vector<vk::raii::Sampler> create_texture_samplers(
   return texture_samplers;
 }
 
-std::vector<Texture> create_textures(
+std::vector<Texture> GltfModelCreator::create_textures(
     Device& device,
-    tinygltf::Model const& source,
     std::vector<vk::raii::Sampler> const& texture_samplers) {
   std::vector<Texture> textures;
-  for(auto&& gltf_texture : source.textures) {
-    tinygltf::Image const& image = source.images[gltf_texture.source];
+  for(auto&& gltf_texture : source_.textures) {
+    tinygltf::Image const& image = source_.images[gltf_texture.source];
     vk::Sampler sampler = nullptr;
     if(gltf_texture.sampler == kTinyGltfNotSpecified) {
       sampler = *texture_samplers.back();
@@ -227,11 +213,10 @@ std::vector<Texture> create_textures(
   return textures;
 }
 
-std::vector<Material> create_materials(
-    tinygltf::Model const& source,
+std::vector<Material> GltfModelCreator::create_materials(
     std::vector<Texture> const& textures) {
   std::vector<Material> materials;
-  for(auto&& gltf_material : source.materials) {
+  for(auto&& gltf_material : source_.materials) {
     auto get_value =
         [&gltf_material](std::string_view name) -> tinygltf::Parameter const* {
       auto iter = gltf_material.values.find(name.data());
@@ -376,11 +361,10 @@ std::vector<Material> create_materials(
   return materials;
 }
 
-std::vector<Animation> create_animations(
-    tinygltf::Model const& source,
+std::vector<Animation> GltfModelCreator::create_animations(
     std::vector<Node> const& nodes) {
   std::vector<Animation> animations;
-  for(auto&& anim : source.animations) {
+  for(auto&& anim : source_.animations) {
     Animation animation;
     animation.name = anim.name;
     if(anim.name.empty()) {
@@ -401,9 +385,10 @@ std::vector<Animation> create_animations(
       }
 
       {
-        tinygltf::Accessor const& accessor = source.accessors[samp.input];
-        tinygltf::BufferView const& buffer_view = source.bufferViews[accessor.bufferView];
-        tinygltf::Buffer const& buffer = source.buffers[buffer_view.buffer];
+        tinygltf::Accessor const& accessor = source_.accessors[samp.input];
+        tinygltf::BufferView const& buffer_view =
+            source_.bufferViews[accessor.bufferView];
+        tinygltf::Buffer const& buffer = source_.buffers[buffer_view.buffer];
 
         RNDRX_ASSERT(accessor.componentType == TINYGLTF_COMPONENT_TYPE_FLOAT);
 
@@ -416,9 +401,10 @@ std::vector<Animation> create_animations(
       }
 
       {
-        tinygltf::Accessor const& accessor = source.accessors[samp.output];
-        tinygltf::BufferView const& buffer_view = source.bufferViews[accessor.bufferView];
-        tinygltf::Buffer const& buffer = source.buffers[buffer_view.buffer];
+        tinygltf::Accessor const& accessor = source_.accessors[samp.output];
+        tinygltf::BufferView const& buffer_view =
+            source_.bufferViews[accessor.bufferView];
+        tinygltf::Buffer const& buffer = source_.buffers[buffer_view.buffer];
 
         RNDRX_ASSERT(accessor.componentType == TINYGLTF_COMPONENT_TYPE_FLOAT);
 
@@ -448,25 +434,24 @@ std::vector<Animation> create_animations(
       }
     }
 
-    // Channels
-    for(auto& source : anim.channels) {
+    for(auto& src_channel : anim.channels) {
       AnimationChannel channel{};
 
-      if(source.target_path == "rotation") {
+      if(src_channel.target_path == "rotation") {
         channel.path = AnimationChannel::PathType::Rotation;
       }
-      if(source.target_path == "translation") {
+      if(src_channel.target_path == "translation") {
         channel.path = AnimationChannel::PathType::Translation;
       }
-      if(source.target_path == "scale") {
+      if(src_channel.target_path == "scale") {
         channel.path = AnimationChannel::PathType::Scale;
       }
-      if(source.target_path == "weights") {
+      if(src_channel.target_path == "weights") {
         LOG(Info) << "weights not yet supported, skipping channel" << std::endl;
         continue;
       }
-      channel.samplerIndex = source.sampler;
-      channel.node = node_from_index(nodes, source.target_node);
+      channel.samplerIndex = src_channel.sampler;
+      channel.node = node_from_index(nodes, src_channel.target_node);
       if(!channel.node) {
         continue;
       }
@@ -480,14 +465,12 @@ std::vector<Animation> create_animations(
   return animations;
 }
 
-void create_node_recursive(
+void GltfModelCreator::create_nodes_recursive(
     Device& device,
-    tinygltf::Model const& source,
     tinygltf::Node const& source_node,
     Node* parent,
     std::uint32_t node_index,
     std::vector<Material> const& materials,
-    VertexIndexBufferInfo& buffer_info,
     std::vector<Node>& nodes) {
   nodes.emplace_back(parent);
   Node& new_node = nodes.back();
@@ -520,23 +503,21 @@ void create_node_recursive(
   };
 
   for(auto&& child_idx : source_node.children) {
-    create_node_recursive(
+    create_nodes_recursive(
         device,
-        source,
-        source.nodes[child_idx],
+        source_.nodes[child_idx],
         &new_node,
         child_idx,
         materials,
-        buffer_info,
         nodes);
   }
 
   if(source_node.mesh > kTinyGltfNotSpecified) {
-    tinygltf::Mesh const& mesh = source.meshes[source_node.mesh];
+    tinygltf::Mesh const& mesh = source_.meshes[source_node.mesh];
     new_node.mesh = Mesh(device, new_node.matrix);
     for(auto&& primitive : mesh.primitives) {
-      std::uint32_t vertex_start = buffer_info.vertex_position;
-      std::uint32_t index_start = buffer_info.index_position;
+      std::uint32_t vertex_start = vertex_position_;
+      std::uint32_t index_start = index_position_;
       std::uint32_t index_count = 0;
       std::uint32_t vertex_count = 0;
       glm::vec3 pos_min{};
@@ -607,19 +588,19 @@ void create_node_recursive(
         tinygltf::Accessor const& accessor_;
       };
 
-      auto get_accessor = [&source, &primitive](
+      auto get_accessor = [this, &primitive](
                               std::string_view name) -> tinygltf::Accessor const* {
         auto iter = primitive.attributes.find(name.data());
         if(iter == primitive.attributes.end()) {
           return nullptr;
         }
 
-        return &source.accessors[iter->second];
+        return &source_.accessors[iter->second];
       };
 
       auto& position_accessor = *get_accessor("POSITION");
-      auto& position_view = source.bufferViews[position_accessor.bufferView];
-      BufferExtractor extractor(source, position_accessor);
+      auto& position_view = source_.bufferViews[position_accessor.bufferView];
+      BufferExtractor extractor(source_, position_accessor);
       buffer_positions = extractor.float_buffer();
       position_stride = extractor.stride_or(
           tinygltf::GetNumComponentsInType(TINYGLTF_TYPE_VEC3));
@@ -634,42 +615,42 @@ void create_node_recursive(
       vertex_count = static_cast<std::uint32_t>(position_accessor.count);
 
       if(auto accessor = get_accessor("NORMAL")) {
-        BufferExtractor extractor(source, *accessor);
+        BufferExtractor extractor(source_, *accessor);
         buffer_normals = extractor.float_buffer();
         normal_stride = extractor.stride_or(
             tinygltf::GetNumComponentsInType(TINYGLTF_TYPE_VEC3));
       }
 
       if(auto accessor = get_accessor("TEXCOORD_0")) {
-        BufferExtractor extractor(source, *accessor);
+        BufferExtractor extractor(source_, *accessor);
         buffer_uv0 = extractor.float_buffer();
         uv0_stride = extractor.stride_or(
             tinygltf::GetNumComponentsInType(TINYGLTF_TYPE_VEC2));
       }
 
       if(auto accessor = get_accessor("TEXCOORD_1")) {
-        BufferExtractor extractor(source, *accessor);
+        BufferExtractor extractor(source_, *accessor);
         buffer_uv1 = extractor.float_buffer();
         uv1_stride = extractor.stride_or(
             tinygltf::GetNumComponentsInType(TINYGLTF_TYPE_VEC2));
       }
 
       if(auto accessor = get_accessor("COLOR_0")) {
-        BufferExtractor extractor(source, *accessor);
+        BufferExtractor extractor(source_, *accessor);
         buffer_colour = extractor.float_buffer();
         colour_stride = extractor.stride_or(
             tinygltf::GetNumComponentsInType(TINYGLTF_TYPE_VEC3));
       }
 
       if(auto accessor = get_accessor("JOINTS_0")) {
-        BufferExtractor extractor(source, *accessor);
+        BufferExtractor extractor(source_, *accessor);
         buffer_joints = extractor.float_buffer();
         joints_stride = extractor.stride_or(
             tinygltf::GetNumComponentsInType(TINYGLTF_TYPE_VEC4));
       }
 
       if(auto accessor = get_accessor("WEIGHTS_0")) {
-        BufferExtractor extractor(source, *accessor);
+        BufferExtractor extractor(source_, *accessor);
         buffer_weights = extractor.float_buffer();
         weights_stride = extractor.stride_or(
             tinygltf::GetNumComponentsInType(TINYGLTF_TYPE_VEC4));
@@ -678,7 +659,7 @@ void create_node_recursive(
       bool is_skinned = (buffer_joints && buffer_weights);
 
       for(std::size_t v = 0; v < position_accessor.count; v++) {
-        Model::Vertex& vert = buffer_info.vertex_buffer[buffer_info.vertex_position];
+        Model::Vertex& vert = vertex_buffer_[vertex_position_];
         auto pos_3d = glm::make_vec3(&buffer_positions[v * position_stride]);
         vert.position = glm::vec4(pos_3d, 1.0f);
         if(buffer_normals) {
@@ -727,40 +708,37 @@ void create_node_recursive(
         if(glm::length(vert.weight0) == 0.0f) {
           vert.weight0 = glm::vec4(1.0f, 0.0f, 0.0f, 0.0f);
         }
-        buffer_info.vertex_position++;
+        vertex_position_++;
       }
 
       bool has_indices = primitive.indices > -1;
       if(has_indices) {
-        const tinygltf::Accessor& accessor = source.accessors[primitive.indices];
-        BufferExtractor extractor(source, accessor);
+        const tinygltf::Accessor& accessor = source_.accessors[primitive.indices];
+        BufferExtractor extractor(source_, accessor);
         index_count = static_cast<std::uint32_t>(accessor.count);
 
         switch(accessor.componentType) {
           case TINYGLTF_PARAMETER_TYPE_UNSIGNED_INT: {
             std::uint32_t const* buf = extractor.uint32_buffer();
             for(size_t index = 0; index < accessor.count; index++) {
-              buffer_info.index_buffer[buffer_info.index_position] = buf[index] +
-                                                                     vertex_start;
-              ++buffer_info.index_position;
+              index_buffer_[index_position_] = buf[index] + vertex_start;
+              ++index_position_;
             }
             break;
           }
           case TINYGLTF_PARAMETER_TYPE_UNSIGNED_SHORT: {
             const uint16_t* buf = extractor.uint16_buffer();
             for(size_t index = 0; index < accessor.count; index++) {
-              buffer_info.index_buffer[buffer_info.index_position] = buf[index] +
-                                                                     vertex_start;
-              ++buffer_info.index_position;
+              index_buffer_[index_position_] = buf[index] + vertex_start;
+              ++index_position_;
             }
             break;
           }
           case TINYGLTF_PARAMETER_TYPE_UNSIGNED_BYTE: {
             const uint8_t* buf = extractor.uint8_buffer();
             for(size_t index = 0; index < accessor.count; index++) {
-              buffer_info.index_buffer[buffer_info.index_position] = buf[index] +
-                                                                     vertex_start;
-              ++buffer_info.index_position;
+              index_buffer_[index_position_] = buf[index] + vertex_start;
+              ++index_position_;
             }
             break;
           }
@@ -774,7 +752,6 @@ void create_node_recursive(
       new_node.mesh->add_primitive(
           {index_start,
            index_count,
-           vertex_count,
            primitive.material > kTinyGltfNotSpecified ? materials[primitive.material]
                                                       : Material()});
     }
@@ -785,51 +762,39 @@ void create_node_recursive(
   }
 }
 
-std::vector<Node> create_nodes(
+std::vector<Node> GltfModelCreator::create_nodes(
     Device& device,
-    tinygltf::Model const& source,
-    std::vector<Material> const& materials,
-    VertexIndexBufferInfo& buffer_info) {
+    std::vector<Material> const& materials) {
   std::vector<Node> ret_nodes;
   tinygltf::Scene const& scene =
-      source.scenes[source.defaultScene > kTinyGltfNotSpecified ? source.defaultScene : 0];
+      source_.scenes[source_.defaultScene > kTinyGltfNotSpecified ? source_.defaultScene : 0];
 
   NodeProperties scene_properties = std::accumulate(
       scene.nodes.begin(),
       scene.nodes.end(),
       NodeProperties(),
-      [&source](NodeProperties props, int node_idx) {
+      [this](NodeProperties props, int node_idx) {
         return props +
-               get_node_properties_recursive(source.nodes[node_idx], source);
+               get_node_properties_recursive(source_.nodes[node_idx], source_);
       });
 
-  buffer_info.vertex_buffer.resize(scene_properties.vertex_count);
-  buffer_info.index_buffer.resize(scene_properties.index_count);
+  vertex_buffer_.resize(scene_properties.vertex_count);
+  index_buffer_.resize(scene_properties.index_count);
 
-  RNDRX_ASSERT(scene_properties.node_count == source.nodes.size());
+  RNDRX_ASSERT(scene_properties.node_count == source_.nodes.size());
   ret_nodes.reserve(scene_properties.node_count);
 
   for(auto&& node_idx : scene.nodes) {
-    tinygltf::Node const& node = source.nodes[node_idx];
-    create_node_recursive(
-        device,
-        source,
-        node,
-        nullptr,
-        node_idx,
-        materials,
-        buffer_info,
-        ret_nodes);
+    tinygltf::Node const& node = source_.nodes[node_idx];
+    create_nodes_recursive(device, node, nullptr, node_idx, materials, ret_nodes);
   }
 
   return ret_nodes;
 }
 
-std::vector<Skeleton> create_skeletons(
-    tinygltf::Model const& source,
-    std::vector<Node> const& nodes) {
+std::vector<Skeleton> GltfModelCreator::create_skeletons(std::vector<Node> const& nodes) {
   std::vector<Skeleton> skeletons;
-  for(auto&& skin : source.skins) {
+  for(auto&& skin : source_.skins) {
     skeletons.emplace_back();
     auto& new_skeleton = skeletons.back();
     new_skeleton.name = skin.name;
@@ -845,9 +810,9 @@ std::vector<Skeleton> create_skeletons(
     }
 
     if(skin.inverseBindMatrices > -1) {
-      auto const& accessor = source.accessors[skin.inverseBindMatrices];
-      auto const& bufferView = source.bufferViews[accessor.bufferView];
-      const tinygltf::Buffer& buffer = source.buffers[bufferView.buffer];
+      auto const& accessor = source_.accessors[skin.inverseBindMatrices];
+      auto const& bufferView = source_.bufferViews[accessor.bufferView];
+      const tinygltf::Buffer& buffer = source_.buffers[bufferView.buffer];
       new_skeleton.inverse_bind_matrices.resize(accessor.count);
       std::memcpy(
           new_skeleton.inverse_bind_matrices.data(),
@@ -857,23 +822,6 @@ std::vector<Skeleton> create_skeletons(
   }
 
   return skeletons;
-}
-
-} // namespace
-
-Model::Model(Device& device, tinygltf::Model const& source) {
-  texture_samplers_ = create_texture_samplers(device, source);
-  textures_ = create_textures(device, source, texture_samplers_);
-  materials_ = create_materials(source, textures_);
-
-  VertexIndexBufferInfo buffer_info;
-  nodes_ = create_nodes(device, source, materials_, buffer_info);
-  animations_ = create_animations(source, nodes_);
-  skeletons_ = create_skeletons(source, nodes_);
-
-  create_device_buffers(device, buffer_info.index_buffer, buffer_info.vertex_buffer);
-
-  // getSceneDimensions();
 }
 
 namespace gltf {

@@ -15,11 +15,11 @@ include(${PROJECT_SOURCE_DIR}/cmake/shaders.cmake)
 
 add_custom_target(d3d12_shaders ALL)
 add_d3d12_vertex_shader(TARGET d3d12_shaders SOURCE ../../assets/shaders/fullscreen_quad.hlsl ENTRY_POINT VSMain)
-add_d3d12_vertex_shader(TARGET d3d12_shaders SOURCE ../../assets/shaders/static_model.hlsl ENTRY_POINT VSMain)
+add_d3d12_vertex_shader(TARGET d3d12_shaders SOURCE ../../assets/shaders/simple_static_model.hlsl ENTRY_POINT VSMain)
 add_d3d12_fragment_shader(TARGET d3d12_shaders SOURCE ../../assets/shaders/fullscreen_quad.hlsl ENTRY_POINT CopyImageOpaque)
 add_d3d12_fragment_shader(TARGET d3d12_shaders SOURCE ../../assets/shaders/fullscreen_quad.hlsl ENTRY_POINT BlendImage)
 add_d3d12_fragment_shader(TARGET d3d12_shaders SOURCE ../../assets/shaders/fullscreen_quad.hlsl ENTRY_POINT BlendImageInv)
-add_d3d12_fragment_shader(TARGET d3d12_shaders SOURCE ../../assets/shaders/static_model.hlsl ENTRY_POINT Phong)
+add_d3d12_fragment_shader(TARGET d3d12_shaders SOURCE ../../assets/shaders/simple_static_model.hlsl ENTRY_POINT Phong)
 
 set(SOURCES
     main.cpp

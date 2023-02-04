@@ -13,7 +13,6 @@
 // limitations under the License.
 #include "rndrx/vulkan/vma/buffer.hpp"
 
-#include <cstddef>
 #include "rndrx/vulkan/vma/allocator.hpp"
 
 namespace rndrx::vulkan::vma {

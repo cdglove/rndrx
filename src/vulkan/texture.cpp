@@ -13,9 +13,14 @@
 // limitations under the License.
 #include "rndrx/vulkan/texture.hpp"
 
+#include <vulkan/vulkan_core.h>
 #include <cmath>
+#include <cstring>
+#include <limits>
+#include <utility>
 #include "rndrx/throw_exception.hpp"
 #include "rndrx/vulkan/device.hpp"
+#include "rndrx/vulkan/vma/allocator.hpp"
 #include "rndrx/vulkan/vma/buffer.hpp"
 
 namespace {
@@ -280,10 +285,12 @@ void Texture::generate_mip_maps(Device& device, vk::raii::CommandBuffer& cmd_buf
       mip_barrier);
 }
 
-void Texture::update_descriptor() {
-  descriptor_.sampler = sampler_;
-  descriptor_.imageView = *image_view_;
-  descriptor_.imageLayout = image_layout_;
+vk::DescriptorImageInfo Texture::descriptor() const {
+  vk::DescriptorImageInfo ret;
+  ret.sampler = sampler_;
+  ret.imageView = *image_view_;
+  ret.imageLayout = image_layout_;
+  return ret;
 }
 
 } // namespace rndrx::vulkan

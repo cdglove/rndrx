@@ -15,13 +15,18 @@
 #define RNDRX_VULKAN_TEXTURE_HPP_
 #pragma once
 
+#include <cstdint>
+#include <span>
+#include <vulkan/vulkan.hpp>
 #include <vulkan/vulkan_raii.hpp>
 #include "rndrx/noncopyable.hpp"
 #include "rndrx/vulkan/vma/image.hpp"
-#include <span>
+
+namespace rndrx { namespace vulkan {
+class Device;
+}} // namespace rndrx::vulkan
 
 namespace rndrx::vulkan {
-class Device;
 
 struct TextureCreateInfo {
   std::uint32_t width = 0;
@@ -35,7 +40,7 @@ class Texture : noncopyable {
  public:
   Texture() = default;
   Texture(Device& device, TextureCreateInfo const& create_info);
-  void update_descriptor();
+  vk::DescriptorImageInfo descriptor() const;
 
  private:
   void generate_mip_maps(Device& device, vk::raii::CommandBuffer& cmd_buf);

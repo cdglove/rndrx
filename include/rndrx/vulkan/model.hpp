@@ -30,10 +30,6 @@
 #include "rndrx/vulkan/texture.hpp"
 #include "rndrx/vulkan/vma/image.hpp"
 
-namespace tinygltf {
-class Model;
-} // namespace tinygltf
-
 namespace rndrx::vulkan {
 
 class Device;
@@ -44,6 +40,7 @@ class Node : noncopyable {
   Node(Node const* parent);
   RNDRX_DEFAULT_MOVABLE(Node);
 
+  void draw(vk::CommandBuffer command_buffer) const;
   glm::mat4 local_matrix() const;
   glm::mat4 resolve_transform_hierarchy() const;
   void update();
@@ -63,10 +60,10 @@ class Node : noncopyable {
   BoundingBox aabb;
 };
 
+class ModelCreator;
 class Model : noncopyable {
  public:
-  // Defined in rndrx/vulkan/gltf/model.cpp
-  Model(Device& device, tinygltf::Model const& source);
+  Model(Device& device, ModelCreator& source);
 
   RNDRX_DEFAULT_MOVABLE(Model);
 
@@ -80,21 +77,22 @@ class Model : noncopyable {
     glm::vec4 colour;
   };
 
-  void draw(vk::CommandBuffer command_buffer);
+  void draw(vk::CommandBuffer command_buffer) const;
   void calculate_bounding_box(Node const* node, Node const* parent);
   void get_scene_dimensions();
   void update_animation(std::uint32_t index, float time);
 
  private:
+  friend class ModelCreator;
   void create_device_buffers(
       Device& device,
-      std::vector<std::uint32_t> const& index_buffer,
-      std::vector<Model::Vertex> const& vertex_buffer);
-  
-  void draw_node(Node const* node, vk::CommandBuffer command_buffer);
+      std::span<const std::uint32_t> const& index_buffer,
+      std::span<const Model::Vertex> const& vertex_buffer);
+  void create_descriptors(Device& device);
 
   vma::Buffer vertices_ = nullptr;
   vma::Buffer indices_ = nullptr;
+  vk::raii::DescriptorSetLayout descriptor_layout_ = nullptr;
   std::vector<Node> nodes_;
   std::vector<Skeleton> skeletons_;
   std::vector<Texture> textures_;
@@ -102,6 +100,30 @@ class Model : noncopyable {
   std::vector<Material> materials_;
   std::vector<Animation> animations_;
   glm::mat4 aabb_;
+};
+
+class ModelCreator {
+ public:
+  void create(Device& device, Model& out);
+
+ private:
+  virtual std::vector<vk::raii::Sampler> create_texture_samplers( //
+      Device& device) = 0;
+  virtual std::vector<Texture> create_textures(
+      Device& device,
+      std::vector<vk::raii::Sampler> const& samplers) = 0;
+  virtual std::vector<Material> create_materials( //
+      std::vector<Texture> const& textures) = 0;
+  virtual std::vector<Node> create_nodes(
+      Device& device,
+      std::vector<Material> const& materials) = 0;
+  virtual std::vector<Animation> create_animations( //
+      std::vector<Node> const& nodes) = 0;
+  virtual std::vector<Skeleton> create_skeletons( //
+      std::vector<Node> const& nodes) = 0;
+
+  virtual std::span<const std::uint32_t> index_buffer() const = 0;
+  virtual std::span<const Model::Vertex> vertex_buffer() const = 0;
 };
 
 Model load_model_from_file(Device& device, std::string_view path);

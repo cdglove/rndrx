@@ -14,11 +14,11 @@
 #include "rndrx/vulkan/submission_context.hpp"
 
 #include <vulkan/vulkan_core.h>
-#include <numeric>
+#include <cstdint>
+#include <limits>
 #include <vulkan/vulkan_raii.hpp>
-#include "rndrx/vulkan/device.hpp"
-#include "rndrx/vulkan/render_context.hpp"
 #include "rndrx/throw_exception.hpp"
+#include "rndrx/vulkan/device.hpp"
 
 namespace rndrx::vulkan {
 SubmissionContext::~SubmissionContext() {

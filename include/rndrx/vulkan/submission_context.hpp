@@ -15,14 +15,16 @@
 #define RNDRX_VULKAN_SUBMISSIONCONTEXT_HPP_
 #pragma once
 
+#include <vector>
 #include <vulkan/vulkan.hpp>
 #include <vulkan/vulkan_raii.hpp>
-#include <vulkan/vulkan_structs.hpp>
 #include "rndrx/noncopyable.hpp"
 
-namespace rndrx::vulkan {
-
+namespace rndrx { namespace vulkan {
 class Device;
+}} // namespace rndrx::vulkan
+
+namespace rndrx::vulkan {
 
 class SubmissionContext : noncopyable {
  public:
