@@ -494,7 +494,7 @@ void create_node_recursive(
   new_node.index = node_index;
   new_node.parent = parent;
   new_node.name = source_node.name;
-  new_node.skin_index = source_node.skin;
+  new_node.skeleton_index = source_node.skin;
   new_node.matrix = glm::mat4(1.f);
 
   glm::vec3 translation = glm::vec3(0.f);
@@ -680,7 +680,7 @@ void create_node_recursive(
       for(std::size_t v = 0; v < position_accessor.count; v++) {
         Model::Vertex& vert = buffer_info.vertex_buffer[buffer_info.vertex_position];
         auto pos_3d = glm::make_vec3(&buffer_positions[v * position_stride]);
-        vert.pos = glm::vec4(pos_3d, 1.0f);
+        vert.position = glm::vec4(pos_3d, 1.0f);
         if(buffer_normals) {
           vert.normal = glm::make_vec3(&buffer_normals[v * normal_stride]);
           vert.normal = glm::normalize(vert.normal);
@@ -825,22 +825,22 @@ std::vector<Node> create_nodes(
   return ret_nodes;
 }
 
-std::vector<Skin> create_skins(
+std::vector<Skeleton> create_skeletons(
     tinygltf::Model const& source,
     std::vector<Node> const& nodes) {
-  std::vector<Skin> skins;
+  std::vector<Skeleton> skeletons;
   for(auto&& skin : source.skins) {
-    skins.emplace_back();
-    auto& new_skin = skins.back();
-    new_skin.name = skin.name;
+    skeletons.emplace_back();
+    auto& new_skeleton = skeletons.back();
+    new_skeleton.name = skin.name;
 
     if(skin.skeleton > kTinyGltfNotSpecified) {
-      new_skin.skeleton_root = node_from_index(nodes, skin.skeleton);
+      new_skeleton.skeleton_root = node_from_index(nodes, skin.skeleton);
     }
 
     for(int joint_index : skin.joints) {
       if(auto joint_node = node_from_index(nodes, joint_index)) {
-        new_skin.joints.push_back(joint_node);
+        new_skeleton.joints.push_back(joint_node);
       }
     }
 
@@ -848,15 +848,15 @@ std::vector<Skin> create_skins(
       auto const& accessor = source.accessors[skin.inverseBindMatrices];
       auto const& bufferView = source.bufferViews[accessor.bufferView];
       const tinygltf::Buffer& buffer = source.buffers[bufferView.buffer];
-      new_skin.inverse_bind_matrices.resize(accessor.count);
+      new_skeleton.inverse_bind_matrices.resize(accessor.count);
       std::memcpy(
-          new_skin.inverse_bind_matrices.data(),
+          new_skeleton.inverse_bind_matrices.data(),
           &buffer.data[accessor.byteOffset + bufferView.byteOffset],
           accessor.count * sizeof(glm::mat4));
     }
   }
 
-  return skins;
+  return skeletons;
 }
 
 } // namespace
@@ -869,7 +869,7 @@ Model::Model(Device& device, tinygltf::Model const& source) {
   VertexIndexBufferInfo buffer_info;
   nodes_ = create_nodes(device, source, materials_, buffer_info);
   animations_ = create_animations(source, nodes_);
-  skins_ = create_skins(source, nodes_);
+  skeletons_ = create_skeletons(source, nodes_);
 
   create_device_buffers(device, buffer_info.index_buffer, buffer_info.vertex_buffer);
 

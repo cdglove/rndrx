@@ -16,6 +16,7 @@
 #pragma once
 
 #include <glm/glm.hpp>
+#include "rndrx/noncopyable.hpp"
 
 namespace rndrx::vulkan {
 
@@ -41,6 +42,14 @@ struct Animation {
   std::vector<AnimationChannel> channels;
   float start = std::numeric_limits<float>::max();
   float end = std::numeric_limits<float>::min();
+};
+
+class Skeleton : noncopyable {
+ public:
+  std::string name;
+  Node const* skeleton_root = nullptr;
+  std::vector<glm::mat4> inverse_bind_matrices;
+  std::vector<Node const*> joints;
 };
 
 } // namespace rndrx::vulkan

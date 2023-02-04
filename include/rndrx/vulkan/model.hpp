@@ -39,15 +39,6 @@ namespace rndrx::vulkan {
 class Device;
 class Texture;
 
-class Node;
-class Skin : noncopyable {
- public:
-  std::string name;
-  Node const* skeleton_root = nullptr;
-  std::vector<glm::mat4> inverse_bind_matrices;
-  std::vector<Node const*> joints;
-};
-
 class Node : noncopyable {
  public:
   Node(Node const* parent);
@@ -63,8 +54,8 @@ class Node : noncopyable {
   glm::mat4 matrix;
   std::string name;
   std::optional<Mesh> mesh;
-  std::optional<Skin> skin;
-  std::int32_t skin_index = -1;
+  std::optional<Skeleton> skeleton;
+  std::int32_t skeleton_index = -1;
   glm::vec3 translation{};
   glm::vec3 scale{1.f};
   glm::quat rotation{};
@@ -80,7 +71,7 @@ class Model : noncopyable {
   RNDRX_DEFAULT_MOVABLE(Model);
 
   struct Vertex {
-    glm::vec3 pos;
+    glm::vec3 position;
     glm::vec3 normal;
     glm::vec2 uv0;
     glm::vec2 uv1;
@@ -89,9 +80,8 @@ class Model : noncopyable {
     glm::vec4 colour;
   };
 
-  void draw_node(Node* node, vk::CommandBuffer command_buffer);
   void draw(vk::CommandBuffer command_buffer);
-  void calculate_bounding_box(Node* node, Node* parent);
+  void calculate_bounding_box(Node const* node, Node const* parent);
   void get_scene_dimensions();
   void update_animation(std::uint32_t index, float time);
 
@@ -100,11 +90,13 @@ class Model : noncopyable {
       Device& device,
       std::vector<std::uint32_t> const& index_buffer,
       std::vector<Model::Vertex> const& vertex_buffer);
+  
+  void draw_node(Node const* node, vk::CommandBuffer command_buffer);
 
   vma::Buffer vertices_ = nullptr;
   vma::Buffer indices_ = nullptr;
   std::vector<Node> nodes_;
-  std::vector<Skin> skins_;
+  std::vector<Skeleton> skeletons_;
   std::vector<Texture> textures_;
   std::vector<vk::raii::Sampler> texture_samplers_;
   std::vector<Material> materials_;

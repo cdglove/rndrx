@@ -58,14 +58,14 @@ void Node::update() {
   if(mesh) {
     glm::mat4 m = resolve_transform_hierarchy();
     mesh->set_world_matrix(m);
-    if(skin) {
+    if(skeleton) {
       glm::mat4 inverse_transform = glm::inverse(m);
-      size_t num_joints = std::min(skin->joints.size(), kMaxNumJoints);
+      size_t num_joints = std::min(skeleton->joints.size(), kMaxNumJoints);
       mesh->set_num_joints(num_joints);
       for(size_t i = 0; i < num_joints; i++) {
-        Node const* joint_node = skin->joints[i];
+        Node const* joint_node = skeleton->joints[i];
         glm::mat4 joint_mat = joint_node->resolve_transform_hierarchy() *
-                              skin->inverse_bind_matrices[i];
+                              skeleton->inverse_bind_matrices[i];
         joint_mat = inverse_transform * joint_mat;
         mesh->set_joint_matrix(i, joint_mat);
       }
@@ -295,4 +295,4 @@ void Model::create_device_buffers(
 //   }
 // }
 
-} // namespace rndrx::vulkan:
+} // namespace rndrx::vulkan
