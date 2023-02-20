@@ -19,22 +19,26 @@
 #include <string_view>
 #include <unordered_map>
 #include <vector>
-#include <vulkan/vulkan.hpp>
-#include <vulkan/vulkan_enums.hpp>
-#include <vulkan/vulkan_raii.hpp>
 #include "rndrx/noncopyable.hpp"
 
 namespace rndrx::vulkan {
 class Device;
+
+struct CachedShader {
+  vk::raii::ShaderModule module;
+  vk::raii::DescriptorSetLayout descriptor_set_layout;
+};
+
 class ShaderCache : noncopyable {
  public:
-  struct CachedShader {
-    vk::raii::ShaderModule module;
-    vk::raii::DescriptorSetLayout descriptor_set_layout;
-  };
 
-  CachedShader const& get(std::string_view name) const {
-    return shader_cache_.at(hasher_(name));
+  CachedShader const* get(std::string_view name) const {
+    auto cached = shader_cache_.find(hasher_(name));
+    if(cached != shader_cache_.end()) {
+      return &cached->second;
+    }
+
+    return nullptr;
   }
 
   CachedShader const&

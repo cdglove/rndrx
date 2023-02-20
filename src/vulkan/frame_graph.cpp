@@ -11,22 +11,11 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-#ifndef RNDRX_THROWEXCEPTION_HPP_
-#define RNDRX_THROWEXCEPTION_HPP_
-#pragma once
+#include "rndrx/vulkan/frame_graph.hpp"
 
-#include <stdexcept>
+namespace rndrx::vulkan {
+FrameGraph::FrameGraph(FrameGraphDescription const& description) {
 
-namespace rndrx {
-template <typename Ex>
-[[noreturn]] void throw_exception(Ex e) {
-  throw e;
-}
-
-[[noreturn]] inline void throw_runtime_error(char const* format) {
-  throw_exception(std::runtime_error(format));
 }
 
 } // namespace rndrx
-
-#endif // RNDRX_THROWEXCEPTION_HPP_

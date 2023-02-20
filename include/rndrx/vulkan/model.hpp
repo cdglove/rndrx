@@ -33,7 +33,9 @@
 namespace rndrx::vulkan {
 
 class Device;
+class ShaderCache;
 class Texture;
+class CachedShader;
 
 class Node : noncopyable {
  public:
@@ -63,7 +65,7 @@ class Node : noncopyable {
 class ModelCreator;
 class Model : noncopyable {
  public:
-  Model(Device& device, ModelCreator& source);
+  Model(Device& device, ShaderCache const& shaders, ModelCreator& source);
 
   RNDRX_DEFAULT_MOVABLE(Model);
 
@@ -100,6 +102,8 @@ class Model : noncopyable {
   std::vector<Material> materials_;
   std::vector<Animation> animations_;
   glm::mat4 aabb_;
+  CachedShader const* vs_ = nullptr;
+  CachedShader const* fs_ = nullptr;
 };
 
 class ModelCreator {

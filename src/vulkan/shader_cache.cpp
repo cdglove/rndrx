@@ -16,11 +16,14 @@
 #include <spirv_reflect.h>
 #include <filesystem>
 #include <fstream>
+#include <vulkan/vulkan.hpp>
+#include <vulkan/vulkan_enums.hpp>
+#include <vulkan/vulkan_raii.hpp>
 #include "rndrx/vulkan/device.hpp"
 
 namespace rndrx::vulkan {
 
-ShaderCache::CachedShader const& ShaderCache::add(
+CachedShader const& ShaderCache::add(
     Device const& device,
     std::string_view name,
     std::span<std::uint32_t> code) {

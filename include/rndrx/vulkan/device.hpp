@@ -22,6 +22,7 @@
 #include <vulkan/vulkan_raii.hpp>
 #include "rndrx/noncopyable.hpp"
 #include "vma/allocator.hpp"
+// #include "rndrx/vulkan/shader_cache.hpp"
 
 namespace rndrx { namespace vulkan {
 class Application;
@@ -95,6 +96,10 @@ class Device : noncopyable {
     return allocator_;
   }
 
+  // ShaderCache& shader_cache() {
+  //   return shaders_;
+  // }
+
  private:
   void create_device(Application const& app);
   void create_descriptor_pool();
@@ -107,10 +112,13 @@ class Device : noncopyable {
   vk::raii::CommandPool transfer_command_pool_ = 0;
   vk::raii::DescriptorPool descriptor_pool_ = nullptr;
   vk::PhysicalDevice physical_device_ = nullptr;
+  //ShaderCache shaders_;
+
   struct {
     std::uint32_t graphics = 0;
     std::uint32_t transfer = 0;
   } queue_family_indices_;
+
   vma::Allocator allocator_ = nullptr;
 };
 

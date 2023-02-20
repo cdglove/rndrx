@@ -31,6 +31,7 @@
 #include "rndrx/vulkan/device.hpp"
 #include "rndrx/vulkan/material.hpp"
 #include "rndrx/vulkan/texture.hpp"
+#include "rndrx/vulkan/shader_cache.hpp"
 #include "rndrx/vulkan/vma/buffer.hpp"
 
 namespace rndrx::vulkan {
@@ -102,8 +103,10 @@ void ModelCreator::create(Device& device, Model& out) {
   out.create_device_buffers(device, index_buffer(), vertex_buffer());
 }
 
-Model::Model(Device& device, ModelCreator& source) {
+Model::Model(Device& device, ShaderCache const& shaders, ModelCreator& source) {
   source.create(device, *this);
+  vs_ = shaders.get("simple_static_model.vsmain");
+  fs_ = shaders.get("gbuffer_opaque.psmain");
 }
 
 void Model::draw(vk::CommandBuffer command_buffer) const {

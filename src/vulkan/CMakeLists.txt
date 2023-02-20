@@ -45,6 +45,7 @@ set(SOURCES
     composite_render_pass.cpp
     device.cpp
     gltf_model_creator.cpp
+    frame_graph.cpp
     mesh.cpp
     model.cpp
     imgui_render_pass.cpp

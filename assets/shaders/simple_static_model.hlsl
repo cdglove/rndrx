@@ -15,7 +15,11 @@
 struct VSInput {
   float3 position : POSITION;
   float3 normal : NORMAL;
-  float2 uv : TEXCOORD;
+  float2 uv0 : TEXCOORD0;
+  float2 uv1 : TEXCOORD1;
+  float4 joint0 : TEXCOORD2;
+  float4 weight0 : TEXCOORD3;
+  float4 colour : TEXCOORD4;
 };
 
 struct PSInput {
@@ -52,7 +56,7 @@ PSInput VSMain(VSInput input) {
   float4x4 world_view = mul(g_view, g_world);
   result.normal = mul((float3x3)world_view, input.normal).xyz;
   result.position_world = mul((float3x3)g_world, input.position).xyz;
-  result.uv = input.uv;
+  result.uv = input.uv0;
   return result;
 }
 

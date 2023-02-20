@@ -588,8 +588,8 @@ void GltfModelCreator::create_nodes_recursive(
         tinygltf::Accessor const& accessor_;
       };
 
-      auto get_accessor = [this, &primitive](
-                              std::string_view name) -> tinygltf::Accessor const* {
+      auto get_accessor =
+          [this, &primitive](std::string_view name) -> tinygltf::Accessor const* {
         auto iter = primitive.attributes.find(name.data());
         if(iter == primitive.attributes.end()) {
           return nullptr;
@@ -693,8 +693,8 @@ void GltfModelCreator::create_nodes_recursive(
             }
             default:
               // Not supported by spec
-              std::cerr << "Joint component type " << joint_component_type
-                        << " not supported!" << std::endl;
+              LOG(Error) << "Joint component type " << joint_component_type
+                         << " not supported!" << std::endl;
               break;
           }
         }

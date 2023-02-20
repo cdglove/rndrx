@@ -11,6 +11,8 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+find_package(Vulkan REQUIRED)
+
 include(FetchContent)
 FetchContent_Declare(
     dear_imgui
@@ -71,6 +73,9 @@ endif()
 
 add_library(rndrx-common 
     bounding_box.cpp
+    config.cpp
+    frame_graph_description.cpp
+    frame_graph.cpp
     tiny_gltf_impl.cpp)
 
 target_include_directories(rndrx-common
@@ -86,7 +91,9 @@ set_source_files_properties(tiny_gltf_impl.cpp
 target_link_libraries(rndrx-common 
     PUBLIC 
     tinygltf
-    glm)
+    glm
+    Vulkan::Vulkan # Temporary: Should go away once we abstract image types, etc.
+)
 
 target_compile_definitions(rndrx-common
     PUBLIC

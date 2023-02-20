@@ -11,22 +11,23 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-#ifndef RNDRX_THROWEXCEPTION_HPP_
-#define RNDRX_THROWEXCEPTION_HPP_
+#ifndef RNDRX_ATTACHMENTOPS_HPP_
+#define RNDRX_ATTACHMENTOPS_HPP_
 #pragma once
 
-#include <stdexcept>
-
 namespace rndrx {
-template <typename Ex>
-[[noreturn]] void throw_exception(Ex e) {
-  throw e;
-}
+enum class AttachmentLoadOp {
+  Load,
+  Clear,
+  DontCare,
+  None,
+};
 
-[[noreturn]] inline void throw_runtime_error(char const* format) {
-  throw_exception(std::runtime_error(format));
-}
+enum class AttachmentStoreOp {
+  Store,
+  DontCare,
+  None,
+};
 
 } // namespace rndrx
-
-#endif // RNDRX_THROWEXCEPTION_HPP_
+#endif // RNDRX_ATTACHMENTOPS_HPP_

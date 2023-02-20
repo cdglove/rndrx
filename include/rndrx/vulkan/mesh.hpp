@@ -11,8 +11,8 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-#ifndef RNDRX_VULKAN_DRAWPRIMITIVE_HPP_
-#define RNDRX_VULKAN_DRAWPRIMITIVE_HPP_
+#ifndef RNDRX_VULKAN_MESH_HPP_
+#define RNDRX_VULKAN_MESH_HPP_
 #pragma once
 
 #include <array>
@@ -105,4 +105,4 @@ class Mesh : noncopyable {
 
 } // namespace rndrx::vulkan
 
-#endif // RNDRX_VULKAN_DRAWPRIMITIVE_HPP_
+#endif // RNDRX_VULKAN_MESH_HPP_

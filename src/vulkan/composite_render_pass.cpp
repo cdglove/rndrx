@@ -106,11 +106,11 @@ void CompositeRenderPass::create_pipeline(Device const& device, ShaderCache cons
   std::array<vk::PipelineShaderStageCreateInfo, 2> stage_info;
   stage_info[0] //
       .setStage(vk::ShaderStageFlagBits::eVertex)
-      .setModule(*sc.get("fullscreen_quad.vsmain").module)
+      .setModule(*sc.get("fullscreen_quad.vsmain")->module)
       .setPName("main");
   stage_info[1] //
       .setStage(vk::ShaderStageFlagBits::eFragment)
-      .setModule(*sc.get("fullscreen_quad.blendimage").module)
+      .setModule(*sc.get("fullscreen_quad.blendimage")->module)
       .setPName("main");
 
   std::array<vk::DynamicState, 2> dynamic_states = {
