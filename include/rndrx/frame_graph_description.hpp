@@ -86,6 +86,14 @@ class FrameGraphRenderPassDescription : public detail::FrameGraphNamedObject {
   FrameGraphRenderPassDescription& add_input(FrameGraphInputDescription input);
   FrameGraphRenderPassDescription& add_output(FrameGraphOutputDescription output);
 
+  std::span<FrameGraphInputDescription const> inputs() const {
+    return inputs_;
+  }
+
+  std::span<FrameGraphOutputDescription const> outputs() const {
+    return outputs_;
+  }
+
  private:
   std::vector<FrameGraphInputDescription> inputs_;
   std::vector<FrameGraphOutputDescription> outputs_;
@@ -96,7 +104,7 @@ class FrameGraphDescription {
   FrameGraphDescription() = default;
   FrameGraphDescription& add_render_pass(FrameGraphRenderPassDescription render_pass);
 
-  std::span<FrameGraphRenderPassDescription const> all_passes() const {
+  std::span<FrameGraphRenderPassDescription const> passes() const {
     return render_passes_;
   }
 

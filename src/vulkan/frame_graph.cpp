@@ -15,7 +15,7 @@
 
 namespace rndrx::vulkan {
 FrameGraph::FrameGraph(FrameGraphDescription const& description) {
-
+    for(auto&& pass : description.a)
 }
 
 } // namespace rndrx

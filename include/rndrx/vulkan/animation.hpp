@@ -51,7 +51,7 @@ class Skeleton : noncopyable {
   std::vector<glm::mat4> inverse_bind_matrices;
   std::vector<Node const*> joints;
 };
-
+ 
 } // namespace rndrx::vulkan
 
 #endif // RNDRX_VULKAN_ANIMATION_HPP_

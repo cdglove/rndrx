@@ -29,7 +29,11 @@ CachedShader const& ShaderCache::add(
     std::span<std::uint32_t> code) {
   auto key = hasher_(name);
   SpvReflectShaderModule reflected_module;
-  spvReflectCreateShaderModule(code.size_bytes(), code.data(), &reflected_module);
+  spvReflectCreateShaderModule2(
+      SPV_REFLECT_MODULE_FLAG_NO_COPY,
+      code.size_bytes(),
+      code.data(),
+      &reflected_module);
 
   std::vector<vk::DescriptorSetLayoutBinding> layout_bindings;
   for(std::uint32_t i = 0; i < reflected_module.descriptor_binding_count; ++i) {

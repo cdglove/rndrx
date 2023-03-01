@@ -15,11 +15,11 @@
 #define RNDRX_VULKAN_FRAMEGRAPH_HPP_
 #pragma once
 
+#include <glm/glm.hpp>
 #include <unordered_map>
 #include <variant>
 #include <vulkan/vulkan.hpp>
 #include "rndrx/frame_graph.hpp"
-#include <glm/glm.hpp>
 
 namespace rndrx {
 class FrameGraphAttachmentOutputDescription;
@@ -83,6 +83,7 @@ class FrameGraph : public ::rndrx::FrameGraph {
   FrameGraph(FrameGraphDescription const& description);
 
  private:
+  std::vector<FrameGraphNode> nodes_;
 };
 
 } // namespace rndrx::vulkan
