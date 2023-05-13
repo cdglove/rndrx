@@ -19,6 +19,7 @@
 #include <vulkan/vulkan.hpp>
 #include <vulkan/vulkan_raii.hpp>
 #include "rndrx/noncopyable.hpp"
+#include "rndrx/vulkan/frame_graph.hpp"
 
 namespace rndrx::vulkan {
 
@@ -27,10 +28,12 @@ class RenderContext;
 class ShaderCache;
 class Device;
 
-class CompositeRenderPass : rndrx::noncopyable {
+class CompositeRenderPass
+    : public FrameGraphRenderPass
+    , noncopyable {
  public:
   class DrawItem;
-  CompositeRenderPass() {};
+  CompositeRenderPass(){};
   CompositeRenderPass(
       Device const& device,
       vk::Format present_format,
@@ -47,6 +50,10 @@ class CompositeRenderPass : rndrx::noncopyable {
     return render_pass_;
   }
 
+  void pre_render(vk::raii::CommandBuffer& cmd) override;
+  void render(vk::raii::CommandBuffer& cmd) override;
+  void post_render(vk::raii::CommandBuffer& cmd) override;
+
  private:
   void create_render_pass(Device const& device, vk::Format present_format);
   void create_pipeline_layout(Device const& device);
@@ -61,7 +68,8 @@ class CompositeRenderPass : rndrx::noncopyable {
 
 class CompositeRenderPass::DrawItem : rndrx::noncopyable {
  public:
-  DrawItem() {}
+  DrawItem() {
+  }
   DrawItem(Device& device, CompositeRenderPass const& parent_pass, vk::ImageView source) {
     create_descriptor_set(device, parent_pass);
     update_descriptor_set(device, parent_pass, source);

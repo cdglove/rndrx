@@ -15,30 +15,30 @@
 
 #include "rndrx/assert.hpp"
 #include "rndrx/throw_exception.hpp"
-#include "rndrx/vulkan/frame_graph.hpp"
+//#include "rndrx/vulkan/frame_graph.hpp"
 
 namespace rndrx {
 
-std::unique_ptr<FrameGraph> FrameGraph::create(const FrameGraphDescription& desc) {
-  switch(SelectedBackend) {
-    case Backend::Vulkan:
-      return std::make_unique<vulkan::FrameGraph>(desc);
-    case Backend::D3D12:
-      RNDRX_ASSERT(false);
-      return std::make_unique<vulkan::FrameGraph>(desc);
-  }
-}
+// std::unique_ptr<FrameGraph> FrameGraph::create(const FrameGraphDescription& desc) {
+//   switch(SelectedBackend) {
+//     case Backend::Vulkan:
+//       return std::make_unique<vulkan::FrameGraph>(desc);
+//     case Backend::D3D12:
+//       RNDRX_ASSERT(false);
+//       return {};
+//   }
+// }
 
-#define FRAME_GRAPH_DISATCH(func)                                              \
-  void FrameGraph::func() {                                                    \
-    switch(SelectedBackend) {                                                  \
-      case Backend::Vulkan:                                                    \
-        return static_cast<vulkan::FrameGraph*>(this)->func();                 \
-      case Backend::D3D12:                                                     \
-        return static_cast<vulkan::FrameGraph*>(this)->func();                 \
-    }                                                                          \
-  }
+// #define FRAME_GRAPH_DISATCH(func)                                              \
+//   void FrameGraph::func() {                                                    \
+//     switch(SelectedBackend) {                                                  \
+//       case Backend::Vulkan:                                                    \
+//         return static_cast<vulkan::FrameGraph*>(this)->func();                 \
+//       case Backend::D3D12:                                                     \
+//         return static_cast<vulkan::FrameGraph*>(this)->func();                 \
+//     }                                                                          \
+//   }
 
-FRAME_GRAPH_DISATCH(render)
+//FRAME_GRAPH_DISATCH(render)
 
 } // namespace rndrx

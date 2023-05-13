@@ -24,9 +24,10 @@ namespace rndrx::vulkan {
 
 class Image {
  public:
-  Image(vk::Image image, vk::ImageView view)
+  Image(vk::Image image, vk::ImageView view, vk::Extent2D extent)
       : image_(image)
-      , view_(view) {
+      , view_(view)
+      , extent_(extent) {
   }
 
   vk::Image image() const {
@@ -37,9 +38,14 @@ class Image {
     return view_;
   }
 
+  vk::Extent2D extent() const {
+    return extent_;
+  }
+
  private:
   vk::Image image_;
   vk::ImageView view_;
+  vk::Extent2D extent_;
 };
 
 } // namespace rndrx::vulkan

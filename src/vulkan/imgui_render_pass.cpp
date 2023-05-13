@@ -205,4 +205,14 @@ void ImGuiRenderPass::create_render_pass(Device const& device) {
 
   render_pass_ = device.vk().createRenderPass(create_info);
 }
+
+void ImGuiRenderPass::pre_render(vk::raii::CommandBuffer& cmd) {
+}
+
+void ImGuiRenderPass::render(vk::raii::CommandBuffer& cmd) {
+}
+
+void ImGuiRenderPass::post_render(vk::raii::CommandBuffer& cmd) {
+}
+
 } // namespace rndrx::vulkan

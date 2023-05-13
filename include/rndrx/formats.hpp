@@ -11,8 +11,8 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-#ifndef RNDRX_IMAGEFORMAT_HPP_
-#define RNDRX_IMAGEFORMAT_HPP_
+#ifndef RNDRX_FORMATS_HPP_
+#define RNDRX_FORMATS_HPP_
 #pragma once
 
 namespace rndrx {
@@ -322,4 +322,4 @@ enum class ImageFormat {
 };
 
 }
-#endif // RNDRX_IMAGEFORMAT_HPP_
+#endif // RNDRX_FORMATS_HPP_

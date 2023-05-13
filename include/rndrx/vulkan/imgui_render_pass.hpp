@@ -19,9 +19,10 @@
 #include <memory>
 #include <vector>
 #include <vulkan/vulkan_raii.hpp>
-#include "render_target.hpp"
 #include "rndrx/noncopyable.hpp"
-#include "vma/image.hpp"
+#include "rndrx/vulkan/frame_graph.hpp"
+#include "rndrx/vulkan/render_target.hpp"
+#include "rndrx/vulkan/vma/image.hpp"
 
 class ImDrawData;
 class ImDrawList;
@@ -35,7 +36,9 @@ class Window;
 
 namespace rndrx::vulkan {
 
-class ImGuiRenderPass : noncopyable {
+class ImGuiRenderPass
+    : public FrameGraphRenderPass
+    , noncopyable {
  public:
   ImGuiRenderPass();
   ImGuiRenderPass(Application const& app, Device& device, Swapchain const& swapchain);
@@ -51,6 +54,10 @@ class ImGuiRenderPass : noncopyable {
   RenderTarget target() const {
     return {*image_.vk(), *image_view_, *framebuffer_};
   }
+
+  void pre_render(vk::raii::CommandBuffer& cmd) override;
+  void render(vk::raii::CommandBuffer& cmd) override;
+  void post_render(vk::raii::CommandBuffer& cmd) override;
 
  private:
   static void check_vk_result(VkResult result);

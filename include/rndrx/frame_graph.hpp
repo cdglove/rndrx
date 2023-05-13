@@ -25,7 +25,7 @@ class FrameGraph {
  public:
   static std::unique_ptr<FrameGraph> create(FrameGraphDescription const& desc);
 
-  RNDRX_MAYBE_VIRTUAL void render();
+  //RNDRX_MAYBE_VIRTUAL void render();
 };
 
 

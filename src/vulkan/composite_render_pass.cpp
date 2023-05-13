@@ -218,4 +218,13 @@ void CompositeRenderPass::DrawItem::update_descriptor_set(
   device.vk().updateDescriptorSets(write, {});
 }
 
+void CompositeRenderPass::pre_render(vk::raii::CommandBuffer& cmd) {
+}
+
+void CompositeRenderPass::render(vk::raii::CommandBuffer& cmd) {
+}
+
+void CompositeRenderPass::post_render(vk::raii::CommandBuffer& cmd) {
+}
+
 } // namespace rndrx::vulkan

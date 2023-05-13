@@ -29,6 +29,8 @@
 #include "rndrx/to_vector.hpp"
 #include "rndrx/vulkan/composite_render_pass.hpp"
 #include "rndrx/vulkan/device.hpp"
+#include "rndrx/vulkan/frame_graph.hpp"
+#include "rndrx/vulkan/frame_graph_builder.hpp"
 #include "rndrx/vulkan/imgui_render_pass.hpp"
 #include "rndrx/vulkan/model.hpp"
 #include "rndrx/vulkan/render_context.hpp"
@@ -473,35 +475,41 @@ void Application::on_device_objects_created() {
 
   render_objects_ = std::make_unique<RenderObjects>(*this);
 
-  render_objects_->deferred_frame_graph_ = FrameGraph::create( //
+  FrameGraphBuilder frame_graph_builder(device_objects_->device);
+  frame_graph_builder.register_pass("imgui", &render_objects_->imgui_render_pass);
+  frame_graph_builder.register_pass(
+      "final_composite",
+      &device_objects_->final_composite_pass);
+  render_objects_->deferred_frame_graph_ = std::make_unique<FrameGraph>( //
+      frame_graph_builder,
       FrameGraphDescription()
-          .add_render_pass( //
-              FrameGraphRenderPassDescription("gbuffer")
-                  .add_output( //
-                      FrameGraphAttachmentOutputDescription("depth_stencil")
-                          .format(ImageFormat::D24UnormS8Uint)
-                          .resolution(window_.width(), window_.height())
-                          .load_op(AttachmentLoadOp::Clear)
-                          .clear_depth(1.f)
-                          .clear_stencil(0))
-                  .add_output( //
-                      FrameGraphAttachmentOutputDescription("albedo")
-                          .format(ImageFormat::B8G8R8A8Unorm)
-                          .resolution(window_.width(), window_.height())
-                          .load_op(AttachmentLoadOp::Clear)
-                          .clear_colour(glm::vec4(0)))
-                  .add_output( //
-                      FrameGraphAttachmentOutputDescription("normals")
-                          .format(ImageFormat::A2B10G10R10SnormPack32)
-                          .resolution(window_.width(), window_.height())
-                          .load_op(AttachmentLoadOp::Clear)
-                          .clear_colour(glm::vec4(0)))
-                  .add_output( //
-                      FrameGraphAttachmentOutputDescription("positions")
-                          .format(ImageFormat::A2B10G10R10SnormPack32)
-                          .resolution(window_.width(), window_.height())
-                          .load_op(AttachmentLoadOp::Clear)
-                          .clear_colour(glm::vec4(0))))
+          // .add_render_pass( //
+          //     FrameGraphRenderPassDescription("gbuffer")
+          //         .add_output( //
+          //             FrameGraphAttachmentOutputDescription("depth_stencil")
+          //                 .format(ImageFormat::D24UnormS8Uint)
+          //                 .resolution(window_.width(), window_.height())
+          //                 .load_op(AttachmentLoadOp::Clear)
+          //                 .clear_depth(1.f)
+          //                 .clear_stencil(0))
+          //         .add_output( //
+          //             FrameGraphAttachmentOutputDescription("albedo")
+          //                 .format(ImageFormat::B8G8R8A8Unorm)
+          //                 .resolution(window_.width(), window_.height())
+          //                 .load_op(AttachmentLoadOp::Clear)
+          //                 .clear_colour(glm::vec4(0)))
+          //         .add_output( //
+          //             FrameGraphAttachmentOutputDescription("normals")
+          //                 .format(ImageFormat::A2B10G10R10SnormPack32)
+          //                 .resolution(window_.width(), window_.height())
+          //                 .load_op(AttachmentLoadOp::Clear)
+          //                 .clear_colour(glm::vec4(0)))
+          //         .add_output( //
+          //             FrameGraphAttachmentOutputDescription("positions")
+          //                 .format(ImageFormat::A2B10G10R10SnormPack32)
+          //                 .resolution(window_.width(), window_.height())
+          //                 .load_op(AttachmentLoadOp::Clear)
+          //                 .clear_colour(glm::vec4(0))))
           .add_render_pass(                            //
               FrameGraphRenderPassDescription("imgui") //
                   .add_output(                         //
@@ -513,14 +521,14 @@ void Application::on_device_objects_created() {
           .add_render_pass( //
               FrameGraphRenderPassDescription("final_composite")
                   .add_input(FrameGraphAttachmentInputDescription("imgui"))
-                  .add_input(FrameGraphAttachmentInputDescription("albedo"))
-                  .add_input(FrameGraphAttachmentInputDescription("normals"))
-                  .add_input(FrameGraphAttachmentInputDescription("positions"))
+                  // .add_input(FrameGraphAttachmentInputDescription("albedo"))
+                  // .add_input(FrameGraphAttachmentInputDescription("normals"))
+                  // .add_input(FrameGraphAttachmentInputDescription("positions"))
                   .add_output( //
                       FrameGraphAttachmentOutputDescription("final")
                           .format(ImageFormat::B8G8R8A8Unorm)
                           .resolution(window_.width(), window_.height())
-                          .load_op(AttachmentLoadOp::Clear)
+                          .load_op(AttachmentLoadOp::DontCare)
                           .clear_colour(glm::vec4(0)))));
 };
 

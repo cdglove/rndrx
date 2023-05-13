@@ -15,20 +15,17 @@
 
 #include "rndrx/assert.hpp"
 #include "rndrx/throw_exception.hpp"
-#include "rndrx/vulkan/frame_graph.hpp"
 
 namespace rndrx {
 
-namespace detail {
 FrameGraphNamedObject::FrameGraphNamedObject(std::string name)
     : name_(std::move(name)) {
 }
+
 FrameGraphNamedObject& FrameGraphNamedObject::name(std::string name) {
   name_ = std::move(name);
   return *this;
 }
-
-} // namespace detail
 
 FrameGraphAttachmentOutputDescription& FrameGraphAttachmentOutputDescription::format(
     ImageFormat format) {

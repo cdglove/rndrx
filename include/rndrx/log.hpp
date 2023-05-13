@@ -14,8 +14,9 @@
 #ifndef RNDRX_LOG_HPP_
 #define RNDRX_LOG_HPP_
 
-#include "rndrx/noncopyable.hpp"
 #include <iostream>
+#include <string_view>
+#include "rndrx/noncopyable.hpp"
 
 namespace rndrx {
 enum class LogLevel {
@@ -45,6 +46,23 @@ struct LogState : noncopyable {
   std::ostream& os_;
   bool done_ = false;
 };
+
+struct QuotedString {
+  QuotedString(std::string_view s)
+      : s_(s) {
+  }
+
+  inline friend std::ostream& operator<<(std::ostream& str, QuotedString const& s) {
+    str << "\"" << s.s_ << "\"";
+    return str;
+  }
+
+  std::string_view s_;
+};
+
+inline QuotedString quote(std::string_view s) {
+  return QuotedString(s);
+}
 
 } // namespace rndrx
 

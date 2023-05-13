@@ -27,6 +27,10 @@ template <typename Ex>
   throw_exception(std::runtime_error(format));
 }
 
+#define RNDRX_THROW_RUNTIME_ERROR() \
+  for(std::stringstream msg;;rndrx::throw_runtime_error(msg.str().c_str())) \
+    msg
+
 } // namespace rndrx
 
 #endif // RNDRX_THROWEXCEPTION_HPP_

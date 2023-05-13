@@ -24,7 +24,7 @@
 #include <variant>
 #include <vector>
 #include "rndrx/attachment_ops.hpp"
-#include "rndrx/image_format.hpp"
+#include "rndrx/formats.hpp"
 
 namespace rndrx {
 
@@ -32,19 +32,20 @@ class FrameGraphRenderPass {
  public:
 };
 
-namespace detail {
 class FrameGraphNamedObject {
  public:
   FrameGraphNamedObject() = default;
   FrameGraphNamedObject(std::string name);
   FrameGraphNamedObject& name(std::string name);
+  std::string_view name() const {
+    return name_;
+  }
 
  private:
   std::string name_;
 };
-} // namespace detail
 
-class FrameGraphAttachmentOutputDescription : public detail::FrameGraphNamedObject {
+class FrameGraphAttachmentOutputDescription : public FrameGraphNamedObject {
  public:
   using FrameGraphNamedObject::FrameGraphNamedObject;
   FrameGraphAttachmentOutputDescription& format(ImageFormat format);
@@ -53,6 +54,34 @@ class FrameGraphAttachmentOutputDescription : public detail::FrameGraphNamedObje
   FrameGraphAttachmentOutputDescription& clear_colour(glm::vec4 colour);
   FrameGraphAttachmentOutputDescription& clear_depth(float depth);
   FrameGraphAttachmentOutputDescription& clear_stencil(int stencil);
+
+  ImageFormat format() const {
+    return format_;
+  }
+
+  int width() const {
+    return width_;
+  }
+
+  int height() const {
+    return height_;
+  }
+
+  AttachmentLoadOp load_op() const {
+    return load_op_;
+  }
+
+  glm::vec4 clear_colour() const {
+    return clear_colour_;
+  }
+
+  float clear_depth() const {
+    return clear_depth_;
+  }
+
+  int clear_stencil() const {
+    return clear_stencil_;
+  }
 
  private:
   ImageFormat format_ = ImageFormat::Undefined;
@@ -64,23 +93,31 @@ class FrameGraphAttachmentOutputDescription : public detail::FrameGraphNamedObje
   int clear_stencil_;
 };
 
-class FrameGraphAttachmentInputDescription : public detail::FrameGraphNamedObject {
+class FrameGraphAttachmentInputDescription : public FrameGraphNamedObject {
  public:
   using FrameGraphNamedObject::FrameGraphNamedObject;
 };
 
-class FrameGraphBufferDescription : public detail::FrameGraphNamedObject {
+class FrameGraphInputImageDescription : public FrameGraphNamedObject {
  public:
   using FrameGraphNamedObject::FrameGraphNamedObject;
 };
 
-using FrameGraphInputDescription =
-    std::variant<FrameGraphAttachmentInputDescription, FrameGraphBufferDescription>;
+class FrameGraphBufferDescription : public FrameGraphNamedObject {
+ public:
+  using FrameGraphNamedObject::FrameGraphNamedObject;
+};
 
-using FrameGraphOutputDescription =
-    std::variant<FrameGraphAttachmentOutputDescription, FrameGraphBufferDescription>;
+using FrameGraphInputDescription = std::variant< //
+    FrameGraphAttachmentInputDescription,
+    FrameGraphInputImageDescription,
+    FrameGraphBufferDescription>;
 
-class FrameGraphRenderPassDescription : public detail::FrameGraphNamedObject {
+using FrameGraphOutputDescription = std::variant< //
+    FrameGraphAttachmentOutputDescription,
+    FrameGraphBufferDescription>;
+
+class FrameGraphRenderPassDescription : public FrameGraphNamedObject {
  public:
   using FrameGraphNamedObject::FrameGraphNamedObject;
   FrameGraphRenderPassDescription& add_input(FrameGraphInputDescription input);
@@ -110,6 +147,32 @@ class FrameGraphDescription {
 
  private:
   std::vector<FrameGraphRenderPassDescription> render_passes_;
+};
+
+struct FrameGraphNamedObjectFromResourceDescription {
+  FrameGraphNamedObject const& operator()(
+      FrameGraphAttachmentInputDescription const& obj) const {
+    return obj;
+  }
+
+  FrameGraphNamedObject const& operator()(
+      FrameGraphInputImageDescription const& obj) const {
+    return obj;
+  }
+
+  FrameGraphNamedObject const& operator()(
+      FrameGraphAttachmentOutputDescription const& obj) const {
+    return obj;
+  }
+
+  FrameGraphNamedObject const& operator()(FrameGraphBufferDescription const& obj) const {
+    return obj;
+  }
+
+  FrameGraphNamedObject const& operator()(
+      FrameGraphRenderPassDescription const& obj) const {
+    return obj;
+  }
 };
 
 } // namespace rndrx
