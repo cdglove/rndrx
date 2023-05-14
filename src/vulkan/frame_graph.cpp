@@ -132,8 +132,7 @@ void FrameGraph::parse_description(
           << ". Did you forget at call add_render_pass()?";
     }
 
-    auto node = FrameGraphNode(to_string(pass.name()), render_impl);
-    nodes_.insert(std::make_pair(to_string(pass.name()), std::move(node)));
+    nodes_.insert(FrameGraphNode(std::string(pass.name()), render_impl));
   }
 
   for(auto&& pass : description.passes()) {
@@ -142,16 +141,14 @@ void FrameGraph::parse_description(
       auto& output_named_object = std::visit(
           FrameGraphNamedObjectFromResourceDescription(),
           output);
-      auto name_string = to_string(output_named_object.name());
-      if(resources_.contains(name_string)) {
+      std::string output_name{output_named_object.name()};
+      if(resources_.contains(output_name)) {
         RNDRX_THROW_RUNTIME_ERROR()
-            << "Found duplicate output " << quote(name_string) << " on pass "
+            << "Found duplicate output " << quote(output_name) << " on pass "
             << quote(pass.name());
       }
 
-      resources_.insert(std::make_pair(
-          std::move(name_string),
-          FrameGraphResource(name_string, producer)));
+      resources_.insert(FrameGraphResource(std::move(output_name), producer));
     }
   }
 
@@ -192,9 +189,9 @@ void FrameGraph::parse_description(
 
 void FrameGraph::build_edges() {
   for(auto&& node : nodes_) {
-    for(auto&& input : node.second.inputs()) {
+    for(auto&& input : node.inputs()) {
       FrameGraphNode* producer = input->producer();
-      producer->add_child(&node.second);
+      producer->add_dependent(const_cast<FrameGraphNode*>(&node));
     }
   }
 }
@@ -203,8 +200,8 @@ namespace {
 void sort_nodes_recursive(
     FrameGraphNode* node,
     std::vector<FrameGraphNode*>& sorted_nodes,
-    std::unordered_map<FrameGraphNode*, bool>& added) {
-  if(node->children().empty()) {
+    std::unordered_map<FrameGraphNode const*, bool>& added) {
+  if(node->dependents().empty()) {
     auto is_added = added.find(node);
     if(!is_added->second) {
       is_added->second = true;
@@ -213,7 +210,7 @@ void sort_nodes_recursive(
     return;
   }
 
-  for(auto child : node->children()) {
+  for(auto child : node->dependents()) {
     sort_nodes_recursive(child, sorted_nodes, added);
   }
 
@@ -227,14 +224,14 @@ void sort_nodes_recursive(
 } // namespace
 
 void FrameGraph::sort_nodes() {
-  std::unordered_map<FrameGraphNode*, bool> added;
+  std::unordered_map<FrameGraphNode const*, bool> added;
   for(auto&& node : nodes_) {
-    added.insert(std::make_pair(&node.second, false));
+    added.insert(std::make_pair(&node, false));
   }
 
   sorted_nodes_.reserve(nodes_.size());
   for(auto&& node : nodes_) {
-    sort_nodes_recursive(&node.second, sorted_nodes_, added);
+    sort_nodes_recursive(const_cast<FrameGraphNode*>(&node), sorted_nodes_, added);
   }
 
   std::ranges::reverse(sorted_nodes_);
@@ -248,7 +245,7 @@ void FrameGraph::allocate_graphics_resources() {
 FrameGraphResource* FrameGraph::find_resource(std::string_view name) {
   auto resource = resources_.find(to_string(name));
   if(resource != resources_.end()) {
-    return &resource->second;
+    return const_cast<FrameGraphResource*>(&*resource);
   }
 
   return nullptr;
@@ -257,7 +254,7 @@ FrameGraphResource* FrameGraph::find_resource(std::string_view name) {
 FrameGraphNode* FrameGraph::find_node(std::string_view name) {
   auto node = nodes_.find(to_string(name));
   if(node != nodes_.end()) {
-    return &node->second;
+    return const_cast<FrameGraphNode*>(&*node);
   }
 
   return nullptr;

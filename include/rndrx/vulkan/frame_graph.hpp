@@ -15,12 +15,13 @@
 #define RNDRX_VULKAN_FRAMEGRAPH_HPP_
 #pragma once
 
-#include <unordered_map>
+#include <type_traits>
+#include <unordered_set>
 #include <variant>
 #include <vulkan/vulkan.hpp>
 #include <vulkan/vulkan_raii.hpp>
-#include "rndrx/vulkan/vma/image.hpp"
 #include "rndrx/vulkan/vma/buffer.hpp"
+#include "rndrx/vulkan/vma/image.hpp"
 
 namespace rndrx {
 class FrameGraphAttachmentOutputDescription;
@@ -77,7 +78,6 @@ class FrameGraphBuffer {
   vma::Buffer buffer_ = nullptr;
 };
 
-
 class FrameGraphResource {
  public:
   FrameGraphResource(std::string name, FrameGraphNode* producer)
@@ -116,8 +116,8 @@ class FrameGraphNode {
     outputs_ = std::move(outputs);
   }
 
-  void add_child(FrameGraphNode* node) {
-    children_.push_back(node);
+  void add_dependent(FrameGraphNode* node) {
+    dependents_.push_back(node);
   }
 
   FrameGraphRenderPass* render_pass() const {
@@ -136,8 +136,8 @@ class FrameGraphNode {
     return outputs_;
   }
 
-  std::span<FrameGraphNode* const> children() const {
-    return children_;
+  std::span<FrameGraphNode* const> dependents() const {
+    return dependents_;
   }
 
   std::string_view name() const {
@@ -150,7 +150,7 @@ class FrameGraphNode {
   FrameGraphRenderPass* render_pass_ = nullptr;
   std::vector<FrameGraphResource const*> inputs_;
   std::vector<FrameGraphResource const*> outputs_;
-  std::vector<FrameGraphNode*> children_;
+  std::vector<FrameGraphNode*> dependents_;
   std::string name_;
 };
 
@@ -169,24 +169,60 @@ class FrameGraph {
 
   FrameGraphResource* find_resource(std::string_view name);
   FrameGraphNode* find_node(std::string_view name);
-  // struct HashName {
-  //   template <typename T>
-  //   std::size_t operator()(T&& val) const {
-  //     return std::hash<std::string_view>()(val.name());
-  //   }
-  // };
 
-  // struct CompareName {
-  //   template <typename T>
-  //   bool operator()(T&& a, T&& b) const {
-  //     return a.name() == b.name();
-  //   }
-  // };
+  // Custom hashers and comparers so we can use the name
+  // field in the object itself. Saves a bunch of conversions
+  // and some memory.
+  struct HashName {
+    using is_transparent = std::true_type;
+
+    template <typename NamedObject>
+    std::size_t operator()(NamedObject&& obj) const {
+      return std::hash<std::string_view>()(obj.name());
+    }
+
+    std::size_t operator()(std::string_view name) const {
+      return std::hash<std::string_view>()(name);
+    }
+
+    std::size_t operator()(std::string const& name) const {
+      return std::hash<std::string_view>()(name);
+    }
+  };
+
+  struct EqualName {
+    using is_transparent = std::true_type;
+
+    template <typename NamedObject>
+    std::size_t operator()(NamedObject&& a, NamedObject&& b) const {
+      return a.name() == b.name();
+    }
+
+    template <typename NamedObject>
+    std::size_t operator()(NamedObject&& obj, std::string_view name) const {
+      return obj.name() == name;
+    }
+
+    template <typename NamedObject>
+    std::size_t operator()(std::string_view name, NamedObject&& obj) const {
+      return name == obj.name();
+    }
+
+    template <typename NamedObject>
+    std::size_t operator()(NamedObject&& obj, std::string const& name) const {
+      return obj.name() == name;
+    }
+
+    template <typename NamedObject>
+    std::size_t operator()(std::string const& name, NamedObject&& obj) const {
+      return name == obj.name();
+    }
+  };
 
   // cglover: There should be an optimisation here where we ue sets
   // instead of maps
-  std::unordered_map<std::string, FrameGraphResource> resources_;
-  std::unordered_map<std::string, FrameGraphNode> nodes_;
+  std::unordered_set<FrameGraphResource, HashName, EqualName> resources_;
+  std::unordered_set<FrameGraphNode, HashName, EqualName> nodes_;
   std::vector<FrameGraphNode*> sorted_nodes_;
 };
 
