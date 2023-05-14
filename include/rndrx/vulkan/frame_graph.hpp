@@ -20,6 +20,9 @@
 #include <variant>
 #include <vulkan/vulkan.hpp>
 #include <vulkan/vulkan_raii.hpp>
+#include <vulkan/vulkan_handles.hpp>
+#include "glm/vec4.hpp"
+#include "rndrx/noncopyable.hpp"
 #include "rndrx/vulkan/vma/buffer.hpp"
 #include "rndrx/vulkan/vma/image.hpp"
 
@@ -43,18 +46,32 @@ class FrameGraphRenderPass {
   virtual void post_render(vk::raii::CommandBuffer& cmd) = 0;
 };
 
-class FrameGraphAttachment {
+class FrameGraphAttachment : noncopyable {
  public:
   FrameGraphAttachment(
       Device& device,
       FrameGraphAttachmentOutputDescription const& description);
 
-  vma::Image const& image() const {
-    return image_;
-  }
+  vma::Image const& image() const;
+  vk::raii::ImageView const& image_view() const;
+  vk::Format format() const;
+  int width() const;
+  int height() const;
+  vk::AttachmentLoadOp load_op() const;
+  glm::vec4 clear_colour() const;
+  float clear_depth() const;
+  int clear_stencil() const;
 
  private:
   vma::Image image_ = nullptr;
+  vk::raii::ImageView image_view_ = nullptr;
+  vk::Format format_ = vk::Format::eUndefined;
+  int width_ = 0;
+  int height_ = 0;
+  vk::AttachmentLoadOp load_op_ = vk::AttachmentLoadOp::eDontCare;
+  glm::vec4 clear_colour_;
+  float clear_depth_ = 0.f;
+  int clear_stencil_ = 0;
 };
 
 // class FrameGraphImage {
@@ -67,7 +84,7 @@ class FrameGraphAttachment {
 //   vk::Image image_;
 // };
 
-class FrameGraphBuffer {
+class FrameGraphBuffer : noncopyable {
  public:
   FrameGraphBuffer(Device& device, FrameGraphBufferDescription const& description);
   vma::Buffer const& buffer() const {
@@ -78,7 +95,7 @@ class FrameGraphBuffer {
   vma::Buffer buffer_ = nullptr;
 };
 
-class FrameGraphResource {
+class FrameGraphResource : noncopyable {
  public:
   FrameGraphResource(std::string name, FrameGraphNode* producer)
       : name_(std::move(name))
@@ -93,28 +110,31 @@ class FrameGraphResource {
     return producer_;
   }
 
+  void set_render_resource(FrameGraphAttachment* attachment);
+  void set_render_resource(FrameGraphBuffer* buffer);
+
+  FrameGraphAttachment* get_attachment() const;
+
  private:
   std::variant< //
       std::nullptr_t,
       FrameGraphAttachment*,
       FrameGraphBuffer*>
       render_resource_ = nullptr;
+
   FrameGraphNode* producer_ = nullptr;
   std::string name_;
 };
 
-class FrameGraphNode {
+class FrameGraphNode : noncopyable {
  public:
   FrameGraphNode(std::string name, FrameGraphRenderPass* render_pass);
 
   void create_vk_render_pass(Device& device);
 
-  void set_resource_data(
+  void set_resources(
       std::vector<FrameGraphResource const*> inputs,
-      std::vector<FrameGraphResource const*> outputs) {
-    inputs_ = std::move(inputs);
-    outputs_ = std::move(outputs);
-  }
+      std::vector<FrameGraphResource const*> outputs);
 
   void add_dependent(FrameGraphNode* node) {
     dependents_.push_back(node);
@@ -154,7 +174,7 @@ class FrameGraphNode {
   std::string name_;
 };
 
-class FrameGraph {
+class FrameGraph : noncopyable {
  public:
   FrameGraph(FrameGraphBuilder const& builder, FrameGraphDescription const& description);
   void render(Device& device);
@@ -165,19 +185,24 @@ class FrameGraph {
       FrameGraphDescription const& description);
   void build_edges();
   void sort_nodes();
-  void allocate_graphics_resources();
+  void allocate_graphics_resources(Device& device, FrameGraphDescription const& description);
 
   FrameGraphResource* find_resource(std::string_view name);
   FrameGraphNode* find_node(std::string_view name);
 
   // Custom hashers and comparers so we can use the name
   // field in the object itself. Saves a bunch of conversions
-  // and some memory.
+  // and some memory. The consequence of this is that the set value
+  // type in const (to avoid corrupting the data structure), so we
+  // need to const cast to get mutable types out of the sets.
   struct HashName {
     using is_transparent = std::true_type;
 
-    template <typename NamedObject>
-    std::size_t operator()(NamedObject&& obj) const {
+    std::size_t operator()(FrameGraphResource const& obj) const {
+      return std::hash<std::string_view>()(obj.name());
+    }
+
+    std::size_t operator()(FrameGraphNode const& obj) const {
       return std::hash<std::string_view>()(obj.name());
     }
 
@@ -193,37 +218,36 @@ class FrameGraph {
   struct EqualName {
     using is_transparent = std::true_type;
 
-    template <typename NamedObject>
-    std::size_t operator()(NamedObject&& a, NamedObject&& b) const {
+    std::size_t operator()(FrameGraphResource const& a, FrameGraphResource const& b) const {
       return a.name() == b.name();
     }
 
-    template <typename NamedObject>
-    std::size_t operator()(NamedObject&& obj, std::string_view name) const {
+    std::size_t operator()(FrameGraphResource const& obj, std::string_view name) const {
       return obj.name() == name;
     }
 
-    template <typename NamedObject>
-    std::size_t operator()(std::string_view name, NamedObject&& obj) const {
+    std::size_t operator()(std::string_view name, FrameGraphResource const& obj) const {
       return name == obj.name();
     }
 
-    template <typename NamedObject>
-    std::size_t operator()(NamedObject&& obj, std::string const& name) const {
+    std::size_t operator()(FrameGraphNode const& a, FrameGraphNode const& b) const {
+      return a.name() == b.name();
+    }
+
+    std::size_t operator()(FrameGraphNode const& obj, std::string_view name) const {
       return obj.name() == name;
     }
 
-    template <typename NamedObject>
-    std::size_t operator()(std::string const& name, NamedObject&& obj) const {
+    std::size_t operator()(std::string_view name, FrameGraphNode const& obj) const {
       return name == obj.name();
     }
   };
 
-  // cglover: There should be an optimisation here where we ue sets
-  // instead of maps
   std::unordered_set<FrameGraphResource, HashName, EqualName> resources_;
   std::unordered_set<FrameGraphNode, HashName, EqualName> nodes_;
   std::vector<FrameGraphNode*> sorted_nodes_;
+  std::vector<std::unique_ptr<FrameGraphAttachment>> attachments_;
+  std::vector<std::unique_ptr<FrameGraphBuffer>> buffers_;
 };
 
 } // namespace rndrx::vulkan

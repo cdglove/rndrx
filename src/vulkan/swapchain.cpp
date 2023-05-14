@@ -185,7 +185,7 @@ void PresentationQueue::present(PresentationContext const& ctx) const {
 void PresentationQueue::create_image_views(Device const& device) {
   image_views_ = //
       swapchain_.images() |
-      std::ranges::views::transform([this, &device](vk::Image img) {
+      std::views::transform([this, &device](vk::Image img) {
         return device.vk().createImageView(
             vk::ImageViewCreateInfo()
                 .setImage(img)
@@ -204,7 +204,7 @@ void PresentationQueue::create_image_views(Device const& device) {
 void PresentationQueue::create_framebuffers(Device const& device, vk::RenderPass renderpass) {
   framebuffers_ = //
       image_views_ |
-      std::ranges::views::transform(
+      std::views::transform(
           [this, &device, renderpass](vk::raii::ImageView const& image_view) {
             return device.vk().createFramebuffer(
                 vk::FramebufferCreateInfo()

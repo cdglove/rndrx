@@ -87,10 +87,10 @@ class FrameGraphAttachmentOutputDescription : public FrameGraphNamedObject {
   ImageFormat format_ = ImageFormat::Undefined;
   int width_ = 0;
   int height_ = 0;
-  AttachmentLoadOp load_op_;
+  AttachmentLoadOp load_op_ = AttachmentLoadOp::DontCare;
   glm::vec4 clear_colour_;
-  float clear_depth_;
-  int clear_stencil_;
+  float clear_depth_ = 0.f;
+  int clear_stencil_ = 0;
 };
 
 class FrameGraphAttachmentInputDescription : public FrameGraphNamedObject {

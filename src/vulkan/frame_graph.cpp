@@ -15,10 +15,15 @@
 
 #include <algorithm>
 #include <iterator>
+#include <memory>
+#include <ranges>
 #include <string_view>
 #include <unordered_map>
+#include <variant>
 #include <vulkan/vulkan_enums.hpp>
+#include <vulkan/vulkan_raii.hpp>
 #include <vulkan/vulkan_structs.hpp>
+#include <xutility>
 #include "rndrx/assert.hpp"
 #include "rndrx/frame_graph_description.hpp"
 #include "rndrx/log.hpp"
@@ -32,21 +37,123 @@
 namespace rndrx::vulkan {
 
 namespace {
-std::string to_string(std::string_view v) {
-  return std::string(v.begin(), v.end());
+
+vk::AttachmentLoadOp to_vulkan_load_op(AttachmentLoadOp op) {
+  switch(op) {
+    case AttachmentLoadOp::Load:
+      return vk::AttachmentLoadOp::eLoad;
+    case AttachmentLoadOp::Clear:
+      return vk::AttachmentLoadOp::eClear;
+    case AttachmentLoadOp::DontCare:
+      return vk::AttachmentLoadOp::eDontCare;
+    case AttachmentLoadOp::None:
+      return vk::AttachmentLoadOp::eNoneEXT;
+    default:
+      RNDRX_ASSERT(false);
+  };
 }
+
+vk::AttachmentStoreOp to_vulkan_store_op(AttachmentStoreOp op) {
+  switch(op) {
+    case AttachmentStoreOp::Store:
+      return vk::AttachmentStoreOp::eStore;
+    case AttachmentStoreOp::DontCare:
+      return vk::AttachmentStoreOp::eDontCare;
+    case AttachmentStoreOp::None:
+      return vk::AttachmentStoreOp::eNone;
+    default:
+      RNDRX_ASSERT(false);
+  };
+}
+
 } // namespace
 
 FrameGraphAttachment::FrameGraphAttachment(
     Device& device,
     FrameGraphAttachmentOutputDescription const& description) {
-  image_ = vma::Image(
-      device.allocator(),
-      vk::ImageCreateInfo() //
-          .setFormat(to_vulkan_format(description.format()))
+  format_ = to_vulkan_format(description.format());
+  width_ = description.width();
+  height_ = description.height();
+  load_op_ = to_vulkan_load_op(description.load_op());
+  clear_colour_ = description.clear_colour();
+  clear_depth_ = description.clear_depth();
+  clear_stencil_ = description.clear_stencil();
+
+  image_ = device.allocator().create_image( //
+      vk::ImageCreateInfo()
+          .setFormat(format_)
           .setImageType(vk::ImageType::e2D)
-          .setExtent(vk::Extent3D(description.width(), description.height(), 1))
-          .setUsage(vk::ImageUsageFlagBits::eColorAttachment));
+          .setExtent(vk::Extent3D(width_, height_, 1))
+          .setUsage(vk::ImageUsageFlagBits::eColorAttachment)
+          .setMipLevels(1)
+          .setArrayLayers(1));
+
+  image_view_ = device.vk().createImageView(
+      vk::ImageViewCreateInfo()
+          .setImage(*image_.vk())
+          .setViewType(vk::ImageViewType::e2D)
+          .setFormat(format_)
+          .setSubresourceRange( //
+              vk::ImageSubresourceRange()
+                  .setAspectMask(vk::ImageAspectFlagBits::eColor)
+                  .setBaseMipLevel(0)
+                  .setLevelCount(1)
+                  .setBaseArrayLayer(0)
+                  .setLayerCount(1)));
+
+#if RNDRX_ENABLE_VULKAN_DEBUG_LAYER
+  VkImage image = *image_.vk();
+  std::uint64_t image_handle = reinterpret_cast<std::uint64_t>(image);
+  device.vk().setDebugUtilsObjectNameEXT( //
+      vk::DebugUtilsObjectNameInfoEXT()
+          .setObjectType(image_.vk().objectType)
+          .setObjectHandle(image_handle)
+          .setPObjectName(description.name().data()));
+
+  VkImageView image_view = *image_view_;
+  std::uint64_t image_view_handle = reinterpret_cast<std::uint64_t>(image);
+  device.vk().setDebugUtilsObjectNameEXT( //
+      vk::DebugUtilsObjectNameInfoEXT()
+          .setObjectType(image_.vk().objectType)
+          .setObjectHandle(image_view_handle)
+          .setPObjectName(description.name().data()));
+#endif
+}
+
+vma::Image const& FrameGraphAttachment::image() const {
+  return image_;
+}
+
+vk::raii::ImageView const& FrameGraphAttachment::image_view() const {
+  return image_view_;
+}
+
+vk::Format FrameGraphAttachment::format() const {
+  return format_;
+}
+
+int FrameGraphAttachment::width() const {
+  return width_;
+}
+
+int FrameGraphAttachment::height() const {
+  return height_;
+}
+
+vk::AttachmentLoadOp FrameGraphAttachment::load_op() const {
+  return load_op_;
+}
+
+glm::vec4 FrameGraphAttachment::clear_colour() const {
+  return clear_colour_;
+}
+
+float FrameGraphAttachment::clear_depth() const {
+  return clear_depth_;
+}
+
+int FrameGraphAttachment::clear_stencil() const {
+  return clear_stencil_;
 }
 
 FrameGraphBuffer::FrameGraphBuffer(
@@ -56,16 +163,119 @@ FrameGraphBuffer::FrameGraphBuffer(
   buffer_ = vma::Buffer(device.allocator(), vk::BufferCreateInfo());
 }
 
+void FrameGraphResource::set_render_resource(FrameGraphAttachment* attachment) {
+  render_resource_ = attachment;
+}
+
+void FrameGraphResource::set_render_resource(FrameGraphBuffer* buffer) {
+  render_resource_ = buffer;
+}
+
+FrameGraphAttachment* FrameGraphResource::get_attachment() const {
+  FrameGraphAttachment* const* ret_ref = std::get_if<FrameGraphAttachment*>(
+      &render_resource_);
+  if(ret_ref) {
+    return *ret_ref;
+  }
+  return nullptr;
+}
+
 FrameGraphNode::FrameGraphNode(std::string name, FrameGraphRenderPass* render_pass)
     : name_(std::move(name))
     , render_pass_(render_pass) {
 }
 
 void FrameGraphNode::create_vk_render_pass(Device& device) {
-  std::array<vk::AttachmentDescription, 32> attachments;
-  vk::RenderPassCreateInfo create_info;
-  create_info.setAttachments(attachments);
-  vk_render_pass_ = device.vk().createRenderPass(create_info);
+  int pass_width = outputs_[0]->get_attachment()->width();
+  int pass_height = outputs_[0]->get_attachment()->height();
+
+  std::vector<vk::AttachmentReference> input_attachment_references;
+  input_attachment_references.reserve(inputs_.size());
+
+  std::vector<vk::AttachmentReference> output_attachment_references;
+  input_attachment_references.reserve(outputs_.size());
+
+  std::vector<vk::AttachmentDescription> attachments;
+  attachments.reserve(inputs_.size() + outputs_.size());
+
+  std::vector<vk::ImageView> framebuffer_views;
+  framebuffer_views.reserve(inputs_.size() + outputs_.size());
+  for(auto&& input : inputs_) {
+    FrameGraphAttachment* attachment = input->get_attachment();
+    // Could be a buffer or image which are not created as part of the render pass.
+    if(attachment == nullptr) {
+      continue;
+    }
+
+    RNDRX_ASSERT(attachment->width() == pass_width);
+    RNDRX_ASSERT(attachment->height() == pass_height);
+
+    input_attachment_references.push_back(
+        vk::AttachmentReference()
+            .setAttachment(attachments.size())
+            .setLayout(vk::ImageLayout::eReadOnlyOptimal));
+
+    attachments.push_back(vk::AttachmentDescription()
+                              .setFormat(attachment->format())
+                              .setLoadOp(vk::AttachmentLoadOp::eLoad)
+                              .setStoreOp(vk::AttachmentStoreOp::eNone)
+                              .setSamples(vk::SampleCountFlagBits::e1)
+                              .setInitialLayout(vk::ImageLayout::eReadOnlyOptimal)
+                              .setFinalLayout(vk::ImageLayout::eReadOnlyOptimal));
+
+    framebuffer_views.push_back(*attachment->image_view());
+  }
+
+  for(auto&& output : outputs_) {
+    FrameGraphAttachment* attachment = output->get_attachment();
+    // Could be a buffer or image which are not created as part of the render pass.
+    if(attachment == nullptr) {
+      continue;
+    }
+
+    RNDRX_ASSERT(attachment->width() == pass_width);
+    RNDRX_ASSERT(attachment->height() == pass_height);
+
+    output_attachment_references.push_back(
+        vk::AttachmentReference()
+            .setAttachment(attachments.size())
+            .setLayout(vk::ImageLayout::eColorAttachmentOptimal));
+
+    attachments.push_back(
+        vk::AttachmentDescription()
+            .setFormat(attachment->format())
+            .setLoadOp(attachment->load_op())
+            .setStoreOp(vk::AttachmentStoreOp::eStore)
+            .setSamples(vk::SampleCountFlagBits::e1)
+            .setInitialLayout(vk::ImageLayout::eColorAttachmentOptimal)
+            .setFinalLayout(vk::ImageLayout::eReadOnlyOptimal));
+
+    framebuffer_views.push_back(*attachment->image_view());
+  }
+
+  vk_render_pass_ = device.vk().createRenderPass( //
+      vk::RenderPassCreateInfo()
+          .setAttachments(attachments)
+          .setSubpasses( //
+              vk::SubpassDescription()
+                  .setPipelineBindPoint(vk::PipelineBindPoint::eGraphics)
+                  .setInputAttachments(input_attachment_references)
+                  .setColorAttachments(output_attachment_references)));
+
+  vk_frame_buffer_ = device.vk().createFramebuffer( //
+      vk::FramebufferCreateInfo()
+          .setRenderPass(*vk_render_pass_)
+          .setWidth(pass_width)
+          .setHeight(pass_height)
+          .setLayers(1)
+          .setAttachments(framebuffer_views));
+}
+
+void FrameGraphNode::set_resources(
+    std::vector<FrameGraphResource const*> inputs,
+    std::vector<FrameGraphResource const*> outputs) {
+  inputs_ = std::move(inputs);
+  outputs_ = std::move(outputs);
 }
 
 FrameGraph::FrameGraph(
@@ -74,7 +284,7 @@ FrameGraph::FrameGraph(
   parse_description(builder, description);
   build_edges();
   sort_nodes();
-  allocate_graphics_resources();
+  allocate_graphics_resources(builder.device(), description);
 }
 
 void FrameGraph::render(Device& device) {
@@ -183,7 +393,7 @@ void FrameGraph::parse_description(
         to_vector;
 
     auto node = find_node(pass.name());
-    node->set_resource_data(std::move(inputs), std::move(outputs));
+    node->set_resources(std::move(inputs), std::move(outputs));
   }
 }
 
@@ -237,14 +447,52 @@ void FrameGraph::sort_nodes() {
   std::ranges::reverse(sorted_nodes_);
 }
 
-void FrameGraph::allocate_graphics_resources() {
-  // for(auto&& resource : resources_) {
-  //   resource.
+void FrameGraph::allocate_graphics_resources(
+    Device& device,
+    FrameGraphDescription const& description) {
+  struct ResourceAllocator {
+    ResourceAllocator(Device& device, FrameGraph& target)
+        : device_(device)
+        , target_(target) {
+    }
+
+    void operator()(FrameGraphAttachmentOutputDescription const& description) {
+      FrameGraphResource* resource = target_.find_resource(description.name());
+      RNDRX_ASSERT(resource);
+      target_.attachments_.push_back(
+          std::make_unique<FrameGraphAttachment>(device_, description));
+      resource->set_render_resource(target_.attachments_.back().get());
+    }
+
+    void operator()(FrameGraphBufferDescription const& description) {
+      FrameGraphResource* resource = target_.find_resource(description.name());
+      RNDRX_ASSERT(resource);
+      target_.buffers_.push_back(
+          std::make_unique<FrameGraphBuffer>(device_, description));
+      resource->set_render_resource(target_.buffers_.back().get());
+    }
+
+    FrameGraph& target_;
+    Device& device_;
+  };
+
+  ResourceAllocator resource_allocator(device, *this);
+  for(auto&& pass : description.passes()) {
+    for(auto&& output : pass.outputs()) {
+      std::visit(resource_allocator, output);
+    }
+
+    FrameGraphNode* node = find_node(pass.name());
+    RNDRX_ASSERT(node && "Not possible for a node to not exist at this point.");
+    node->create_vk_render_pass(device);
+  }
 }
 
 FrameGraphResource* FrameGraph::find_resource(std::string_view name) {
-  auto resource = resources_.find(to_string(name));
+  auto resource = resources_.find(name);
   if(resource != resources_.end()) {
+    // const_cast required because a value is const in a set.
+    // It's safe as long as we don't change the name.
     return const_cast<FrameGraphResource*>(&*resource);
   }
 
@@ -252,8 +500,10 @@ FrameGraphResource* FrameGraph::find_resource(std::string_view name) {
 }
 
 FrameGraphNode* FrameGraph::find_node(std::string_view name) {
-  auto node = nodes_.find(to_string(name));
+  auto node = nodes_.find(name);
   if(node != nodes_.end()) {
+    // const_cast required because a value is const in a set.
+    // It's safe as long as we don't change the name.
     return const_cast<FrameGraphNode*>(&*node);
   }
 
