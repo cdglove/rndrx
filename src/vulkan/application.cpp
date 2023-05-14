@@ -21,7 +21,7 @@
 #include "imgui.h"
 #include "rndrx/assert.hpp"
 #include "rndrx/attachment_ops.hpp"
-#include "rndrx/frame_graph.hpp"
+#include "rndrx/vulkan/frame_graph.hpp"
 #include "rndrx/frame_graph_description.hpp"
 #include "rndrx/log.hpp"
 #include "rndrx/scope_exit.hpp"

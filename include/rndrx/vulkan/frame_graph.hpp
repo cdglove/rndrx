@@ -13,28 +13,34 @@
 // limitations under the License.
 #ifndef RNDRX_VULKAN_FRAMEGRAPH_HPP_
 #define RNDRX_VULKAN_FRAMEGRAPH_HPP_
-#include "rndrx/vulkan/vma/buffer.hpp"
 #pragma once
 
-#include <glm/glm.hpp>
 #include <unordered_map>
-#include <unordered_set>
 #include <variant>
 #include <vulkan/vulkan.hpp>
 #include <vulkan/vulkan_raii.hpp>
-#include "rndrx/frame_graph.hpp"
-#include "rndrx/vulkan/device.hpp"
 #include "rndrx/vulkan/vma/image.hpp"
+#include "rndrx/vulkan/vma/buffer.hpp"
 
 namespace rndrx {
 class FrameGraphAttachmentOutputDescription;
 class FrameGraphBufferDescription;
+class FrameGraphDescription;
 } // namespace rndrx
 
 namespace rndrx::vulkan {
 
 class Device;
 class FrameGraphBuilder;
+class FrameGraphNode;
+class FrameGraph;
+
+class FrameGraphRenderPass {
+ public:
+  virtual void pre_render(vk::raii::CommandBuffer& cmd) = 0;
+  virtual void render(vk::raii::CommandBuffer& cmd) = 0;
+  virtual void post_render(vk::raii::CommandBuffer& cmd) = 0;
+};
 
 class FrameGraphAttachment {
  public:
@@ -71,7 +77,7 @@ class FrameGraphBuffer {
   vma::Buffer buffer_ = nullptr;
 };
 
-class FrameGraphNode;
+
 class FrameGraphResource {
  public:
   FrameGraphResource(std::string name, FrameGraphNode* producer)
@@ -97,14 +103,6 @@ class FrameGraphResource {
   std::string name_;
 };
 
-class FrameGraphRenderPass {
- public:
-  virtual void pre_render(vk::raii::CommandBuffer& cmd) = 0;
-  virtual void render(vk::raii::CommandBuffer& cmd) = 0;
-  virtual void post_render(vk::raii::CommandBuffer& cmd) = 0;
-};
-
-class FrameGraph;
 class FrameGraphNode {
  public:
   FrameGraphNode(std::string name, FrameGraphRenderPass* render_pass);
@@ -156,7 +154,7 @@ class FrameGraphNode {
   std::string name_;
 };
 
-class FrameGraph : public ::rndrx::FrameGraph {
+class FrameGraph {
  public:
   FrameGraph(FrameGraphBuilder const& builder, FrameGraphDescription const& description);
   void render(Device& device);
@@ -166,7 +164,8 @@ class FrameGraph : public ::rndrx::FrameGraph {
       FrameGraphBuilder const& builder,
       FrameGraphDescription const& description);
   void build_edges();
-  void topological_sort();
+  void sort_nodes();
+  void allocate_graphics_resources();
 
   FrameGraphResource* find_resource(std::string_view name);
   FrameGraphNode* find_node(std::string_view name);

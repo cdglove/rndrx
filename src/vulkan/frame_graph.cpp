@@ -23,6 +23,7 @@
 #include "rndrx/frame_graph_description.hpp"
 #include "rndrx/log.hpp"
 #include "rndrx/throw_exception.hpp"
+#include "rndrx/to_vector.hpp"
 #include "rndrx/vulkan/device.hpp"
 #include "rndrx/vulkan/formats.hpp"
 #include "rndrx/vulkan/frame_graph_builder.hpp"
@@ -31,24 +32,6 @@
 namespace rndrx::vulkan {
 
 namespace {
-// struct FrameGraphResourceFromResourceDescription {
-//   FrameGraphResourceFromResourceDescription(Device& device)
-//       : device_(device) {
-//   }
-
-//   FrameGraphResource operator()(
-//       FrameGraphAttachmentOutputDescription const& description) const {
-//     return FrameGraphAttachment(device_, description);
-//   }
-
-//   FrameGraphResource operator()(FrameGraphBufferDescription const&
-//   description) const {
-//     return FrameGraphBuffer(device_, description);
-//   }
-
-//   Device& device_;
-// };
-
 std::string to_string(std::string_view v) {
   return std::string(v.begin(), v.end());
 }
@@ -90,7 +73,8 @@ FrameGraph::FrameGraph(
     FrameGraphDescription const& description) {
   parse_description(builder, description);
   build_edges();
-  topological_sort();
+  sort_nodes();
+  allocate_graphics_resources();
 }
 
 void FrameGraph::render(Device& device) {
@@ -172,38 +156,34 @@ void FrameGraph::parse_description(
   }
 
   for(auto&& pass : description.passes()) {
-    std::vector<FrameGraphResource const*> inputs;
-    inputs.reserve(pass.inputs().size());
-    std::ranges::transform(
-        pass.inputs(),
-        std::back_inserter(inputs),
-        [this, &pass](auto const& description) {
+    std::vector<FrameGraphResource const*> inputs =
+        pass.inputs() |
+        std::views::transform([this, &pass](auto const& description) {
           auto& named_object = std::visit(
               FrameGraphNamedObjectFromResourceDescription(),
               description);
-          auto input = find_resource(named_object.name());
+          FrameGraphResource const* input = find_resource(named_object.name());
           if(input == nullptr) {
             RNDRX_THROW_RUNTIME_ERROR()
                 << "Failed to find output named " << quote(named_object.name())
                 << " for pass " << quote(pass.name());
           }
           return input;
-        });
+        }) |
+        to_vector;
 
-    std::vector<FrameGraphResource const*> outputs;
-    outputs.reserve(pass.outputs().size());
-    std::ranges::transform(
-        pass.outputs(),
-        std::back_inserter(outputs),
-        [this, &pass](auto const& description) {
+    std::vector<FrameGraphResource const*> outputs =
+        pass.outputs() |
+        std::views::transform([this, &pass](auto const& description) {
           auto& named_object = std::visit(
               FrameGraphNamedObjectFromResourceDescription(),
               description);
-          auto output = find_resource(named_object.name());
+          FrameGraphResource const* output = find_resource(named_object.name());
           RNDRX_ASSERT(
               output && "Output should have been found due to first pass.");
           return output;
-        });
+        }) |
+        to_vector;
 
     auto node = find_node(pass.name());
     node->set_resource_data(std::move(inputs), std::move(outputs));
@@ -220,7 +200,7 @@ void FrameGraph::build_edges() {
 }
 
 namespace {
-void topological_sort_recursive(
+void sort_nodes_recursive(
     FrameGraphNode* node,
     std::vector<FrameGraphNode*>& sorted_nodes,
     std::unordered_map<FrameGraphNode*, bool>& added) {
@@ -234,8 +214,9 @@ void topological_sort_recursive(
   }
 
   for(auto child : node->children()) {
-    topological_sort_recursive(child, sorted_nodes, added);
+    sort_nodes_recursive(child, sorted_nodes, added);
   }
+
   auto is_added = added.find(node);
   if(!is_added->second) {
     is_added->second = true;
@@ -245,7 +226,7 @@ void topological_sort_recursive(
 
 } // namespace
 
-void FrameGraph::topological_sort() {
+void FrameGraph::sort_nodes() {
   std::unordered_map<FrameGraphNode*, bool> added;
   for(auto&& node : nodes_) {
     added.insert(std::make_pair(&node.second, false));
@@ -253,10 +234,15 @@ void FrameGraph::topological_sort() {
 
   sorted_nodes_.reserve(nodes_.size());
   for(auto&& node : nodes_) {
-    topological_sort_recursive(&node.second, sorted_nodes_, added);
+    sort_nodes_recursive(&node.second, sorted_nodes_, added);
   }
 
   std::ranges::reverse(sorted_nodes_);
+}
+
+void FrameGraph::allocate_graphics_resources() {
+  // for(auto&& resource : resources_) {
+  //   resource.
 }
 
 FrameGraphResource* FrameGraph::find_resource(std::string_view name) {

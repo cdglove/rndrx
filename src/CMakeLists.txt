@@ -75,7 +75,6 @@ add_library(rndrx-common
     bounding_box.cpp
     config.cpp
     frame_graph_description.cpp
-    frame_graph.cpp
     tiny_gltf_impl.cpp)
 
 target_include_directories(rndrx-common
