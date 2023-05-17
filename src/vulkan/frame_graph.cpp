@@ -84,7 +84,9 @@ FrameGraphAttachment::FrameGraphAttachment(
           .setFormat(format_)
           .setImageType(vk::ImageType::e2D)
           .setExtent(vk::Extent3D(width_, height_, 1))
-          .setUsage(vk::ImageUsageFlagBits::eColorAttachment)
+          .setUsage(
+              vk::ImageUsageFlagBits::eColorAttachment |
+              vk::ImageUsageFlagBits::eInputAttachment)
           .setMipLevels(1)
           .setArrayLayers(1));
 

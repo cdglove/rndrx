@@ -156,6 +156,10 @@ void CompositeRenderPass::create_pipeline(Device const& device, ShaderCache cons
       .setLogicOpEnable(VK_FALSE)
       .setAttachments(colour_blend_attachment_state);
 
+  vk::PipelineMultisampleStateCreateInfo multisample_state_create_info;
+  multisample_state_create_info //
+      .setRasterizationSamples(vk::SampleCountFlagBits::e1);
+
   vk::GraphicsPipelineCreateInfo create_info;
   create_info //
       .setStages(stage_info)
@@ -164,6 +168,7 @@ void CompositeRenderPass::create_pipeline(Device const& device, ShaderCache cons
       .setPRasterizationState(&rasterization_state_create_info)
       .setPColorBlendState(&colour_blend_state_create_info)
       .setPViewportState(&viewport_state_create_info)
+      .setPMultisampleState(&multisample_state_create_info)
       .setPDynamicState(&dynamic_state_create_info)
       .setLayout(*pipeline_layout_)
       .setRenderPass(*render_pass_);
