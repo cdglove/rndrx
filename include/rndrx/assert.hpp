@@ -42,4 +42,8 @@
     } while(false)
 #endif
 
+#define RNDRX_UNREACHABLE \
+  RNDRX_ASSERT(false && "Unreachable"); \
+  __builtin_unreachable()
+
 #endif // RNDRX_ASSERT_HPP_
