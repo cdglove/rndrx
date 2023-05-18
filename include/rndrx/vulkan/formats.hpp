@@ -13,6 +13,7 @@
 // limitations under the License.
 #ifndef RNDRX_VULKAN_FORMATS_HPP_
 #define RNDRX_VULKAN_FORMATS_HPP_
+#include "rndrx/assert.hpp"
 #pragma once
 
 #include <vulkan/vulkan_enums.hpp>
@@ -625,7 +626,10 @@ vk::Format to_vulkan_format(ImageFormat format) {
       return vk::Format::eR12X4G12X4Unorm2Pack16KHR;
     case ImageFormat::R12X4UnormPack16KHR:
       return vk::Format::eR12X4UnormPack16KHR;
+    default:
+      RNDRX_UNREACHABLE;
   }
+
 }
 } // namespace rndrx::vulkan
 #endif // RNDRX_VULKAN_FORMATS_HPP_
