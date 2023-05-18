@@ -23,7 +23,7 @@
 #include <vulkan/vulkan_enums.hpp>
 #include <vulkan/vulkan_raii.hpp>
 #include <vulkan/vulkan_structs.hpp>
-#include <xutility>
+#include <utility>
 #include "rndrx/assert.hpp"
 #include "rndrx/frame_graph_description.hpp"
 #include "rndrx/log.hpp"
@@ -49,7 +49,7 @@ vk::AttachmentLoadOp to_vulkan_load_op(AttachmentLoadOp op) {
     case AttachmentLoadOp::None:
       return vk::AttachmentLoadOp::eNoneEXT;
     default:
-      RNDRX_ASSERT(false);
+      RNDRX_UNREACHABLE;      
   };
 }
 
@@ -62,7 +62,7 @@ vk::AttachmentStoreOp to_vulkan_store_op(AttachmentStoreOp op) {
     case AttachmentStoreOp::None:
       return vk::AttachmentStoreOp::eNone;
     default:
-      RNDRX_ASSERT(false);
+      RNDRX_UNREACHABLE;
   };
 }
 
