@@ -13,10 +13,10 @@
 // limitations under the License.
 #ifndef RNDRX_VULKAN_FORMATS_HPP_
 #define RNDRX_VULKAN_FORMATS_HPP_
-#include "rndrx/assert.hpp"
 #pragma once
 
 #include <vulkan/vulkan_enums.hpp>
+#include "rndrx/assert.hpp"
 #include "rndrx/formats.hpp"
 
 namespace rndrx::vulkan {
