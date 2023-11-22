@@ -21,7 +21,6 @@
 #include "imgui.h"
 #include "rndrx/assert.hpp"
 #include "rndrx/attachment_ops.hpp"
-#include "rndrx/vulkan/frame_graph.hpp"
 #include "rndrx/frame_graph_description.hpp"
 #include "rndrx/log.hpp"
 #include "rndrx/scope_exit.hpp"
@@ -34,6 +33,7 @@
 #include "rndrx/vulkan/imgui_render_pass.hpp"
 #include "rndrx/vulkan/model.hpp"
 #include "rndrx/vulkan/render_context.hpp"
+#include "rndrx/vulkan/renderer.hpp"
 #include "rndrx/vulkan/shader_cache.hpp"
 #include "rndrx/vulkan/submission_context.hpp"
 #include "rndrx/vulkan/swapchain.hpp"
@@ -75,41 +75,6 @@ std::array<char const*, 1> constexpr kValidationLayers = {
     "VK_LAYER_KHRONOS_validation"};
 
 } // namespace
-
-struct Application::DeviceObjects {
-  DeviceObjects(Application& app)
-      : device(app)
-      , shaders(load_essential_shaders(device))
-      , swapchain(app, device)
-      , final_composite_pass(device, swapchain.surface_format().format, shaders)
-      , present_queue(
-            device,
-            swapchain,
-            device.graphics_queue(),
-            *final_composite_pass.render_pass()) {
-  }
-
-  Device device;
-  ShaderCache shaders;
-  Swapchain swapchain;
-  CompositeRenderPass final_composite_pass;
-  PresentationQueue present_queue;
-};
-
-struct Application::RenderObjects {
-  RenderObjects(Application& app)
-      : imgui_render_pass(app, app.device(), app.swapchain())
-      , composite_imgui(
-            app.device(),
-            app.device_objects_->final_composite_pass,
-            imgui_render_pass.target().view()) {
-  }
-
-  std::unique_ptr<FrameGraph> deferred_frame_graph_;
-  std::unique_ptr<FrameGraph> gbuffer_debug_frame_graph_;
-  ImGuiRenderPass imgui_render_pass;
-  CompositeRenderPass::DrawItem composite_imgui;
-};
 
 Application::Application() {
   create_instance();
@@ -237,39 +202,36 @@ void Application::run() {
                 << ((*selected_device() == *device) ? " (selected)" : "");
     }
 
-    on_pre_create_device_objects();
+    on_pre_create_renderer();
 
-    device_objects_ = std::make_unique<DeviceObjects>(*this);
+    renderer_ = std::make_unique<Renderer>(*this);
+
     auto exit_main_loop = on_scope_exit([this] {
       run_status_ = RunStatus::DestroyingDeviceObjects;
       device().vk().waitIdle();
-      on_pre_destroy_device_objects();
-      device_objects_.reset();
+      on_pre_destroy_renderer();
+      renderer_.reset();
       run_status_ = RunStatus::DeviceObjectsDestroyed;
-      on_device_objects_destroyed();
+      on_renderer_destroyed();
     });
 
     run_status_ = RunStatus::DeviceObjectsCreated;
-    on_device_objects_created();
+    on_renderer_created();
     main_loop();
   }
 }
 
 void Application::main_loop() {
-  Device& device = device_objects_->device;
-  Swapchain& swapchain = device_objects_->swapchain;
-  ShaderCache& shaders = device_objects_->shaders;
-
   std::array<SubmissionContext, 3> submission_contexts = {{
-      SubmissionContext(device),
-      SubmissionContext(device),
-      SubmissionContext(device),
+      SubmissionContext(device()),
+      SubmissionContext(device()),
+      SubmissionContext(device()),
   }};
 
   initialise_device_resources(submission_contexts[0]);
 
   run_status_ = RunStatus::Running;
-  auto scopy_exit_set_status = on_scope_exit(
+  auto scope_exit_set_status = on_scope_exit(
       [this] { run_status_ = RunStatus::ShuttingDown; });
 
   auto last_frame_ts = std::chrono::high_resolution_clock::now();
@@ -304,20 +266,17 @@ void Application::main_loop() {
 }
 
 Device& Application::device() {
-  return device_objects_->device;
+  return renderer_->device();
 }
 
 Swapchain& Application::swapchain() {
-  return device_objects_->swapchain;
+  return renderer_->swapchain();
 }
 
 ShaderCache& Application::shaders() {
-  return device_objects_->shaders;
+  return renderer_->shaders();
 }
 
-CompositeRenderPass& Application::final_composite_pass() {
-  return device_objects_->final_composite_pass;
-}
 void Application::create_instance() {
 #if RNDRX_ENABLE_VULKAN_DEBUG_LAYER
   if(!check_validation_layer_support()) {
@@ -456,103 +415,117 @@ void Application::render(SubmissionContext& ctx) {
   ctx.begin_rendering(window_.extents());
   on_begin_render(ctx);
 
-  PresentationContext present_ctx = device_objects_->present_queue.acquire_context();
-  on_pre_present(ctx, present_ctx);
-  ctx.finish_rendering();
-  on_end_render(ctx);
-  device_objects_->present_queue.present(present_ctx);
-  on_post_present(present_ctx);
+  // PresentationContext present_ctx = device_objects_->present_queue.acquire_context();
+  // render_objects_->deferred_frame_graph->render(ctx);
+  // on_pre_present(ctx, present_ctx);
+  // ctx.finish_rendering();
+  // on_end_render(ctx);
+  // device_objects_->present_queue.present(present_ctx);
+  // on_post_present(present_ctx);
 }
 
-void Application::on_pre_create_device_objects(){};
+void Application::on_pre_create_renderer(){};
 
-void Application::on_device_objects_created() {
+void Application::on_renderer_created() {
   // tinygltf::Model gltf_model = gltf::load_model_from_file(
   //     "assets/models/NewSponza_Main_glTF_002.gltf");
 
   // GltfModelCreator model_creator(gltf_model);
   // Model model(device_objects_->device, device_objects_->shaders, model_creator);
 
-  render_objects_ = std::make_unique<RenderObjects>(*this);
+  // FrameGraphBuilder frame_graph_builder(device_objects_->device);
+  // frame_graph_builder.register_pass("imgui", &render_objects_->imgui_render_pass);
+  // frame_graph_builder.register_pass(
+  //     "final_composite",
+  //     &device_objects_->final_composite_pass);
+  // render_objects_->deferred_frame_graph = std::make_unique<FrameGraph>( //
+  //     frame_graph_builder,
+  //     FrameGraphDescription()
+  //         // .add_render_pass( //
+  //         //     FrameGraphRenderPassDescription("gbuffer")
+  //         //         .add_output( //
+  //         //             FrameGraphAttachmentOutputDescription("depth_stencil")
+  //         //                 .format(ImageFormat::D24UnormS8Uint)
+  //         //                 .resolution(window_.width(), window_.height())
+  //         //                 .load_op(AttachmentLoadOp::Clear)
+  //         //                 .clear_depth(1.f)
+  //         //                 .clear_stencil(0))
+  //         //         .add_output( //
+  //         //             FrameGraphAttachmentOutputDescription("albedo")
+  //         //                 .format(ImageFormat::B8G8R8A8Unorm)
+  //         //                 .resolution(window_.width(), window_.height())
+  //         //                 .load_op(AttachmentLoadOp::Clear)
+  //         //                 .clear_colour(glm::vec4(0)))
+  //         //         .add_output( //
+  //         //             FrameGraphAttachmentOutputDescription("normals")
+  //         //                 .format(ImageFormat::A2B10G10R10SnormPack32)
+  //         //                 .resolution(window_.width(), window_.height())
+  //         //                 .load_op(AttachmentLoadOp::Clear)
+  //         //                 .clear_colour(glm::vec4(0)))
+  //         //         .add_output( //
+  //         //             FrameGraphAttachmentOutputDescription("positions")
+  //         //                 .format(ImageFormat::A2B10G10R10SnormPack32)
+  //         //                 .resolution(window_.width(), window_.height())
+  //         //                 .load_op(AttachmentLoadOp::Clear)
+  //         //                 .clear_colour(glm::vec4(0))))
+  //         .add_render_pass(                            //
+  //             FrameGraphRenderPassDescription("imgui") //
+  //                 .add_output(                         //
+  //                     FrameGraphAttachmentOutputDescription("imgui")
+  //                         .format(ImageFormat::B8G8R8A8Unorm)
+  //                         .resolution(window_.width(), window_.height())
+  //                         .load_op(AttachmentLoadOp::Clear)
+  //                         .clear_colour(glm::vec4(0))))
+  //         .add_render_pass( //
+  //             FrameGraphRenderPassDescription("final_composite")
+  //                 .add_input(FrameGraphAttachmentInputDescription("imgui"))
+  //                 // .add_input(FrameGraphAttachmentInputDescription("albedo"))
+  //                 // .add_input(FrameGraphAttachmentInputDescription("normals"))
+  //                 // .add_input(FrameGraphAttachmentInputDescription("positions"))
+  //                 .add_output( //
+  //                     FrameGraphAttachmentOutputDescription("final")
+  //                         .format(ImageFormat::B8G8R8A8Unorm)
+  //                         .resolution(window_.width(), window_.height())
+  //                         .load_op(AttachmentLoadOp::DontCare)
+  //                         .clear_colour(glm::vec4(0)))));
 
-  FrameGraphBuilder frame_graph_builder(device_objects_->device);
-  frame_graph_builder.register_pass("imgui", &render_objects_->imgui_render_pass);
-  frame_graph_builder.register_pass(
-      "final_composite",
-      &device_objects_->final_composite_pass);
-  render_objects_->deferred_frame_graph_ = std::make_unique<FrameGraph>( //
-      frame_graph_builder,
-      FrameGraphDescription()
-          // .add_render_pass( //
-          //     FrameGraphRenderPassDescription("gbuffer")
-          //         .add_output( //
-          //             FrameGraphAttachmentOutputDescription("depth_stencil")
-          //                 .format(ImageFormat::D24UnormS8Uint)
-          //                 .resolution(window_.width(), window_.height())
-          //                 .load_op(AttachmentLoadOp::Clear)
-          //                 .clear_depth(1.f)
-          //                 .clear_stencil(0))
-          //         .add_output( //
-          //             FrameGraphAttachmentOutputDescription("albedo")
-          //                 .format(ImageFormat::B8G8R8A8Unorm)
-          //                 .resolution(window_.width(), window_.height())
-          //                 .load_op(AttachmentLoadOp::Clear)
-          //                 .clear_colour(glm::vec4(0)))
-          //         .add_output( //
-          //             FrameGraphAttachmentOutputDescription("normals")
-          //                 .format(ImageFormat::A2B10G10R10SnormPack32)
-          //                 .resolution(window_.width(), window_.height())
-          //                 .load_op(AttachmentLoadOp::Clear)
-          //                 .clear_colour(glm::vec4(0)))
-          //         .add_output( //
-          //             FrameGraphAttachmentOutputDescription("positions")
-          //                 .format(ImageFormat::A2B10G10R10SnormPack32)
-          //                 .resolution(window_.width(), window_.height())
-          //                 .load_op(AttachmentLoadOp::Clear)
-          //                 .clear_colour(glm::vec4(0))))
-          .add_render_pass(                            //
-              FrameGraphRenderPassDescription("imgui") //
-                  .add_output(                         //
-                      FrameGraphAttachmentOutputDescription("imgui")
-                          .format(ImageFormat::B8G8R8A8Unorm)
-                          .resolution(window_.width(), window_.height())
-                          .load_op(AttachmentLoadOp::Clear)
-                          .clear_colour(glm::vec4(0))))
-          .add_render_pass( //
-              FrameGraphRenderPassDescription("final_composite")
-                  .add_input(FrameGraphAttachmentInputDescription("imgui"))
-                  // .add_input(FrameGraphAttachmentInputDescription("albedo"))
-                  // .add_input(FrameGraphAttachmentInputDescription("normals"))
-                  // .add_input(FrameGraphAttachmentInputDescription("positions"))
-                  .add_output( //
-                      FrameGraphAttachmentOutputDescription("final")
-                          .format(ImageFormat::B8G8R8A8Unorm)
-                          .resolution(window_.width(), window_.height())
-                          .load_op(AttachmentLoadOp::DontCare)
-                          .clear_colour(glm::vec4(0)))));
+  // render_objects_->imgui_render_pass.initialise_imgui(
+  //     device_objects_->device,
+  //     *this,
+  //     device_objects_->swapchain,
+  //     render_objects_->deferred_frame_graph->find_node("imgui")->vk_render_pass());
+  // vk::ClearValue clear_value;
+  // clear_value.color.setFloat32({0, 0, 0, 0});
+
+  // vk::RenderPassBeginInfo begin_pass;
+  // begin_pass //
+  //     .setRenderPass(*render_pass_)
+  //     .setFramebuffer(*framebuffer_)
+  //     .setRenderArea(sc.render_extents())
+  //     .setClearValues(clear_value);
+  // command_buffer.beginRenderPass(begin_pass, vk::SubpassContents::eInline);
 };
 
 void Application::on_begin_initialise_device_resources(
     rndrx::vulkan::SubmissionContext& ctx) {
-  render_objects_->imgui_render_pass.create_fonts_texture(ctx);
+  //render_objects_->imgui_render_pass.create_fonts_texture(ctx);
 }
 
 void Application::on_end_initialise_device_resources() {
-  render_objects_->imgui_render_pass.finish_font_texture_creation();
+  //render_objects_->imgui_render_pass.finish_font_texture_creation();
 }
 
 void Application::on_begin_frame(){};
 
 void Application::on_begin_update() {
-  render_objects_->imgui_render_pass.begin_frame();
+  //render_objects_->imgui_render_pass.begin_frame();
 }
 
 void Application::on_end_update() {
-  render_objects_->imgui_render_pass.end_frame();
+  //render_objects_->imgui_render_pass.end_frame();
 }
 
 void Application::on_begin_render(rndrx::vulkan::SubmissionContext& sc) {
-  render_objects_->imgui_render_pass.render(sc);
 }
 
 void Application::on_end_render(SubmissionContext&){};
@@ -560,19 +533,20 @@ void Application::on_end_render(SubmissionContext&){};
 void Application::on_pre_present(
     rndrx::vulkan::SubmissionContext& sc,
     rndrx::vulkan::PresentationContext& pc) {
-  rndrx::vulkan::RenderContext rc;
-  rc.set_targets(window().extents(), pc.target().view(), pc.target().framebuffer());
-  final_composite_pass().render(rc, sc, {&render_objects_->composite_imgui, 1});
+  // rndrx::vulkan::RenderContext rc;
+  // rc.set_targets(window().extents(), pc.target().view(),
+  // pc.target().framebuffer()); final_composite_pass().render(rc, sc,
+  // {&render_objects_->composite_imgui, 1});
 }
 
 void Application::on_post_present(PresentationContext&){};
 
 void Application::on_end_frame(){};
 
-void Application::on_pre_destroy_device_objects() {
-  render_objects_.reset();
+void Application::on_pre_destroy_renderer() {
+
 }
 
-void Application::on_device_objects_destroyed(){};
+void Application::on_renderer_destroyed(){};
 
 } // namespace rndrx::vulkan

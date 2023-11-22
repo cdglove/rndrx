@@ -73,35 +73,4 @@ void SubmissionContext::create_sync_objects(Device& device) {
   submit_fence_ = device.vk().createFence(fence_create_info);
 }
 
-// If dynbamic rendering
-//   void begin_pass(RenderContext const& rc) {
-//     vk::Viewport viewport = rc.full_viewport();
-//     command_buffer().setViewport(0, 1, &viewport);
-//     auto full_extent = rc.extents();
-//     command_buffer().setScissor(0, 1, &full_extent);
-
-//     vk::ClearValue clear_value;
-//     clear_value.color.setFloat32({0, 1, 1, 0});
-//     vk::RenderingAttachmentInfo colour_info;
-//     colour_info //
-//         .setImageView(rc.colour_target())
-//         .setImageLayout(vk::ImageLayout::eColorAttachmentOptimal)
-//         .setLoadOp(vk::AttachmentLoadOp::eClear)
-//         .setClearValue(clear_value)
-//         .setResolveMode(vk::ResolveModeFlagBits::eNone);
-
-//     vk::RenderingInfo rendering_info;
-//     rendering_info //
-//         .setLayerCount(1)
-//         .setViewMask(0)
-//         .setColorAttachments(colour_info)
-//         .setRenderArea(rc.extents());
-
-//     command_buffer().beginRendering(rendering_info);
-//   }
-
-//   void end_pass() {
-//     command_buffer().endRendering();
-//   }
-
 } // namespace rndrx::vulkan

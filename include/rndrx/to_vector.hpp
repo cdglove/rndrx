@@ -40,6 +40,7 @@ to_vector_ref_t<Vector> to_vector_ref(Vector&& v) {
 
 template <typename Range, typename Dest>
 auto operator|(Range&& rng, to_vector_ref_t<Dest> ref) {
+  ref.v_.clear();
   ref.v_.insert(ref.v_.end(), rng.begin(), rng.end());
   return ref.v_;
 }

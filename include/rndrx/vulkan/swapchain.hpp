@@ -59,13 +59,14 @@ class PresentationContext {
 
 class PresentationQueue : noncopyable {
  public:
+  PresentationQueue() = default;
   PresentationQueue(
       Device const& device,
       Swapchain const& swapchain,
       vk::raii::Queue const& present_queue,
       vk::RenderPass renderpass)
-      : swapchain_(swapchain)
-      , present_queue_(present_queue) {
+      : swapchain_(&swapchain)
+      , present_queue_(&present_queue) {
     create_image_views(device);
     create_framebuffers(device, renderpass);
     create_sync_objects(device);
@@ -84,8 +85,8 @@ class PresentationQueue : noncopyable {
   std::vector<vk::raii::ImageView> image_views_;
   std::vector<vk::raii::Framebuffer> framebuffers_;
   std::vector<vk::raii::Fence> image_ready_fences_;
-  Swapchain const& swapchain_;
-  vk::raii::Queue const& present_queue_;
+  Swapchain const* swapchain_;
+  vk::raii::Queue const* present_queue_;
   std::uint32_t image_idx_ = std::numeric_limits<std::uint32_t>::max();
   std::uint32_t sync_idx_ = 0;
 };

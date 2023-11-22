@@ -289,8 +289,19 @@ FrameGraph::FrameGraph(
   allocate_graphics_resources(builder.device(), description);
 }
 
-void FrameGraph::render(Device& device) {
-  vk::raii::CommandBuffer cmd = device.alloc_graphics_command_buffer();
+FrameGraphNode* FrameGraph::find_node(std::string_view name) {
+  auto node = nodes_.find(name);
+  if(node != nodes_.end()) {
+    // const_cast required because a value is const in a set.
+    // It's safe as long as we don't change the name.
+    return const_cast<FrameGraphNode*>(&*node);
+  }
+
+  return nullptr;
+}
+
+void FrameGraph::render(SubmissionContext& sc) {
+  auto cmd = sc.command_buffer();
   for(auto&& node : sorted_nodes_) {
     // for(auto&& input : node->inputs()) {
     //   if(FrameGraphAttachment const* attachment = input->attachment()) {
@@ -298,7 +309,7 @@ void FrameGraph::render(Device& device) {
     //   }
     // }
 
-    vk::Extent2D image_size;
+    vk::Extent2D image_size = sc.render_extents().extent;
     // for(auto&& output : node->outputs()) {
     //   if(FrameGraphAttachment const* attachment = output->attachment()) {
     //     // Transition image accordingly.
@@ -318,18 +329,16 @@ void FrameGraph::render(Device& device) {
         1.f};
     cmd.setViewport(0, viewport);
 
-    node->render_pass()->pre_render(cmd);
+    node->render_pass()->pre_render(sc);
 
     // Begin rendering
 
-    node->render_pass()->render(cmd);
+    node->render_pass()->render(sc);
 
     // Finish rendering
 
-    node->render_pass()->post_render(cmd);
+    node->render_pass()->post_render(sc);
   }
-
-  // device.graphics_queue().submit()
 }
 
 void FrameGraph::parse_description(
@@ -501,15 +510,5 @@ FrameGraphResource* FrameGraph::find_resource(std::string_view name) {
   return nullptr;
 }
 
-FrameGraphNode* FrameGraph::find_node(std::string_view name) {
-  auto node = nodes_.find(name);
-  if(node != nodes_.end()) {
-    // const_cast required because a value is const in a set.
-    // It's safe as long as we don't change the name.
-    return const_cast<FrameGraphNode*>(&*node);
-  }
-
-  return nullptr;
-}
 
 } // namespace rndrx::vulkan

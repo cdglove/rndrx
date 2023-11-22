@@ -41,36 +41,28 @@ class ImGuiRenderPass
     , noncopyable {
  public:
   ImGuiRenderPass();
-  ImGuiRenderPass(Application const& app, Device& device, Swapchain const& swapchain);
+  ImGuiRenderPass(Device& device);
   ImGuiRenderPass(ImGuiRenderPass&&);
   ImGuiRenderPass& operator=(ImGuiRenderPass&&);
   ~ImGuiRenderPass();
+  void initialise_imgui(
+      Device& device,
+      Application const& app,
+      Swapchain const& swapchain,
+      vk::RenderPass render_pass);
   void begin_frame();
   void end_frame();
-  void render(SubmissionContext& sc);
+  void pre_render(SubmissionContext& sc) override;
+  void render(SubmissionContext& sc) override;
+  void post_render(SubmissionContext& sc) override;
   void create_fonts_texture(SubmissionContext& sc);
   void finish_font_texture_creation();
-
-  RenderTarget target() const {
-    return {*image_.vk(), *image_view_, *framebuffer_};
-  }
-
-  void pre_render(vk::raii::CommandBuffer& cmd) override;
-  void render(vk::raii::CommandBuffer& cmd) override;
-  void post_render(vk::raii::CommandBuffer& cmd) override;
 
  private:
   static void check_vk_result(VkResult result);
   void create_descriptor_pool(Device const& device);
-  void create_image(Device& device, Window const& window);
-  void create_render_pass(Device const& device);
 
   vk::raii::DescriptorPool descriptor_pool_ = nullptr;
-  vk::raii::RenderPass render_pass_ = nullptr;
-  vma::Image image_ = nullptr;
-  vk::raii::DeviceMemory image_memory_ = nullptr;
-  vk::raii::ImageView image_view_ = nullptr;
-  vk::raii::Framebuffer framebuffer_ = nullptr;
   std::unique_ptr<ImDrawData> draw_data_;
   std::vector<ImDrawList*> draw_list_memory_;
 };

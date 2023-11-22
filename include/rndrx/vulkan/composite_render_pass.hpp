@@ -33,29 +33,28 @@ class CompositeRenderPass
     , noncopyable {
  public:
   class DrawItem;
-  CompositeRenderPass(){};
+  CompositeRenderPass() = default;
   CompositeRenderPass(
       Device const& device,
       vk::Format present_format,
       ShaderCache const& sc) {
-    create_render_pass(device, present_format);
+    // create_render_pass(device, present_format);
     create_pipeline_layout(device);
     create_pipeline(device, sc);
   }
 
   RNDRX_DEFAULT_MOVABLE(CompositeRenderPass);
 
-  void render(RenderContext& rc, SubmissionContext& sc, std::span<DrawItem> draw_list);
+  void pre_render(SubmissionContext& sc) override;
+  void render(SubmissionContext& sc) override;
+  void post_render(SubmissionContext& sc) override;
+
   vk::raii::RenderPass const& render_pass() {
     return render_pass_;
   }
 
-  void pre_render(vk::raii::CommandBuffer& cmd) override;
-  void render(vk::raii::CommandBuffer& cmd) override;
-  void post_render(vk::raii::CommandBuffer& cmd) override;
-
  private:
-  void create_render_pass(Device const& device, vk::Format present_format);
+  // void create_render_pass(Device const& device, vk::Format present_format);
   void create_pipeline_layout(Device const& device);
   void create_pipeline(Device const& device, ShaderCache const& sc);
 
@@ -66,29 +65,30 @@ class CompositeRenderPass
   vk::raii::Pipeline copy_image_pipeline_ = nullptr;
 };
 
-class CompositeRenderPass::DrawItem : rndrx::noncopyable {
- public:
-  DrawItem() {
-  }
-  DrawItem(Device& device, CompositeRenderPass const& parent_pass, vk::ImageView source) {
-    create_descriptor_set(device, parent_pass);
-    update_descriptor_set(device, parent_pass, source);
-  }
+// class CompositeRenderPass::DrawItem : rndrx::noncopyable {
+//  public:
+//   DrawItem() {
+//   }
+//   DrawItem(Device& device, CompositeRenderPass const& parent_pass,
+//   vk::ImageView source) {
+//     create_descriptor_set(device, parent_pass);
+//     update_descriptor_set(device, parent_pass, source);
+//   }
 
-  DrawItem(DrawItem&&) = default;
-  DrawItem& operator=(DrawItem&&) = default;
+//   DrawItem(DrawItem&&) = default;
+//   DrawItem& operator=(DrawItem&&) = default;
 
-  void draw(CompositeRenderPass const& pass, SubmissionContext& sc);
+//   void draw(CompositeRenderPass const& pass, SubmissionContext& sc);
 
- private:
-  void create_descriptor_set(Device& device, CompositeRenderPass const& parent_pass);
-  void update_descriptor_set(
-      Device& device,
-      CompositeRenderPass const& parent_pass,
-      vk::ImageView source);
+//  private:
+//   void create_descriptor_set(Device& device, CompositeRenderPass const&
+//   parent_pass); void update_descriptor_set(
+//       Device& device,
+//       CompositeRenderPass const& parent_pass,
+//       vk::ImageView source);
 
-  vk::raii::DescriptorSet descriptor_set_ = nullptr;
-};
+//   vk::raii::DescriptorSet descriptor_set_ = nullptr;
+// };
 
 } // namespace rndrx::vulkan
 

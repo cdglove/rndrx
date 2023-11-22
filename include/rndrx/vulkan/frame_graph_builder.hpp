@@ -26,21 +26,22 @@ class FrameGraphDescription;
 namespace rndrx::vulkan {
 
 class FrameGraphRenderPass;
-class Device;
 class FrameGraph;
+class Device;
+class Application;
 
 class FrameGraphBuilder {
  public:
-  FrameGraphBuilder(Device& device)
+  explicit FrameGraphBuilder(Device& device)
       : device_(device) {
   }
 
   void register_pass(std::string_view name, FrameGraphRenderPass* pass);
   FrameGraphRenderPass* find_render_pass(std::string_view name) const;
+  
   Device& device() const {
     return device_;
   }
-  // std::unique_ptr<FrameGraph> compile(FrameGraphDescription const& description);
 
  private:
   Device& device_;

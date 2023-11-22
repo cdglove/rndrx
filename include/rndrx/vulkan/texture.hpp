@@ -38,7 +38,9 @@ struct TextureCreateInfo {
 
 class Texture : noncopyable {
  public:
-  Texture() = default;
+  Texture(std::nullptr_t) {
+  }
+
   Texture(Device& device, TextureCreateInfo const& create_info);
   vk::DescriptorImageInfo descriptor() const;
 

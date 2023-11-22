@@ -24,59 +24,66 @@
 
 namespace rndrx::vulkan {
 
-void CompositeRenderPass::render(
-    RenderContext& rc,
-    SubmissionContext& sc,
-    std::span<DrawItem> draw_list) {
-  auto&& cb = sc.command_buffer();
+// void CompositeRenderPass::render(
+//     RenderContext& rc,
+//     SubmissionContext& sc,
+//     std::span<DrawItem> draw_list) {
+//   auto&& cb = sc.command_buffer();
 
-  vk::ClearValue clear_value;
-  clear_value.color.setFloat32({0, 1, 1, 0});
+//   vk::ClearValue clear_value;
+//   clear_value.color.setFloat32({0, 1, 1, 0});
 
-  sc.command_buffer().beginRenderPass(
-      vk::RenderPassBeginInfo()
-          .setRenderPass(*render_pass_)
-          .setFramebuffer(rc.framebuffer())
-          .setRenderArea(rc.extents())
-          .setClearValues(clear_value),
-      vk::SubpassContents::eInline);
+//   sc.command_buffer().beginRenderPass(
+//       vk::RenderPassBeginInfo()
+//           .setRenderPass(*render_pass_)
+//           .setFramebuffer(rc.framebuffer())
+//           .setRenderArea(rc.extents())
+//           .setClearValues(clear_value),
+//       vk::SubpassContents::eInline);
 
-  cb.bindPipeline(vk::PipelineBindPoint::eGraphics, *copy_image_pipeline_);
+//   cb.bindPipeline(vk::PipelineBindPoint::eGraphics, *copy_image_pipeline_);
 
-  for(auto&& item : draw_list) {
-    item.draw(*this, sc);
-  }
+//   for(auto&& item : draw_list) {
+//     item.draw(*this, sc);
+//   }
 
-  sc.command_buffer().endRenderPass();
+//   sc.command_buffer().endRenderPass();
+// }
+
+void CompositeRenderPass::pre_render(SubmissionContext& sc) {
+}
+void CompositeRenderPass::render(SubmissionContext& sc) {
+}
+void CompositeRenderPass::post_render(SubmissionContext& sc) {
 }
 
-void CompositeRenderPass::create_render_pass(Device const& device, vk::Format present_format) {
-  vk::AttachmentDescription attachment_desc;
-  attachment_desc //
-      .setFormat(present_format)
-      .setSamples(vk::SampleCountFlagBits::e1)
-      .setLoadOp(vk::AttachmentLoadOp::eClear)
-      .setStoreOp(vk::AttachmentStoreOp::eStore)
-      .setInitialLayout(vk::ImageLayout::eUndefined)
-      .setFinalLayout(vk::ImageLayout::ePresentSrcKHR);
+// void CompositeRenderPass::create_render_pass(Device const& device, vk::Format present_format) {
+//   vk::AttachmentDescription attachment_desc;
+//   attachment_desc //
+//       .setFormat(present_format)
+//       .setSamples(vk::SampleCountFlagBits::e1)
+//       .setLoadOp(vk::AttachmentLoadOp::eClear)
+//       .setStoreOp(vk::AttachmentStoreOp::eStore)
+//       .setInitialLayout(vk::ImageLayout::eUndefined)
+//       .setFinalLayout(vk::ImageLayout::ePresentSrcKHR);
 
-  vk::AttachmentReference attachment_ref;
-  attachment_ref //
-      .setAttachment(0)
-      .setLayout(vk::ImageLayout::eColorAttachmentOptimal);
+//   vk::AttachmentReference attachment_ref;
+//   attachment_ref //
+//       .setAttachment(0)
+//       .setLayout(vk::ImageLayout::eColorAttachmentOptimal);
 
-  vk::SubpassDescription subpass;
-  subpass //
-      .setPipelineBindPoint(vk::PipelineBindPoint::eGraphics)
-      .setColorAttachments(attachment_ref);
+//   vk::SubpassDescription subpass;
+//   subpass //
+//       .setPipelineBindPoint(vk::PipelineBindPoint::eGraphics)
+//       .setColorAttachments(attachment_ref);
 
-  vk::RenderPassCreateInfo create_info;
-  create_info //
-      .setAttachments(attachment_desc)
-      .setSubpasses(subpass);
+//   vk::RenderPassCreateInfo create_info;
+//   create_info //
+//       .setAttachments(attachment_desc)
+//       .setSubpasses(subpass);
 
-  render_pass_ = device.vk().createRenderPass(create_info);
-}
+//   render_pass_ = device.vk().createRenderPass(create_info);
+// }
 
 void CompositeRenderPass::create_pipeline_layout(Device const& device) {
   vk::SamplerCreateInfo sampler_create_info;
@@ -176,60 +183,51 @@ void CompositeRenderPass::create_pipeline(Device const& device, ShaderCache cons
   copy_image_pipeline_ = device.vk().createGraphicsPipeline(nullptr, create_info);
 }
 
-void CompositeRenderPass::DrawItem::draw(
-    CompositeRenderPass const& pass,
-    SubmissionContext& sc) {
-  auto&& cb = sc.command_buffer();
-  cb.bindDescriptorSets(
-      vk::PipelineBindPoint::eGraphics,
-      *pass.pipeline_layout_,
-      0,
-      1,
-      &*descriptor_set_,
-      0,
-      nullptr);
-  sc.command_buffer().draw(3, 1, 0, 0);
-}
+// void CompositeRenderPass::DrawItem::draw(
+//     CompositeRenderPass const& pass,
+//     SubmissionContext& sc) {
+//   auto&& cb = sc.command_buffer();
+//   cb.bindDescriptorSets(
+//       vk::PipelineBindPoint::eGraphics,
+//       *pass.pipeline_layout_,
+//       0,
+//       1,
+//       &*descriptor_set_,
+//       0,
+//       nullptr);
+//   sc.command_buffer().draw(3, 1, 0, 0);
+// }
 
-void CompositeRenderPass::DrawItem::create_descriptor_set(
-    Device& device,
-    CompositeRenderPass const& parent_pass) {
-  vk::DescriptorSetAllocateInfo alloc_info;
-  alloc_info //
-      .setDescriptorPool(device.descriptor_pool())
-      .setSetLayouts(*parent_pass.descriptor_layout_);
+// void CompositeRenderPass::DrawItem::create_descriptor_set(
+//     Device& device,
+//     CompositeRenderPass const& parent_pass) {
+//   vk::DescriptorSetAllocateInfo alloc_info;
+//   alloc_info //
+//       .setDescriptorPool(device.descriptor_pool())
+//       .setSetLayouts(*parent_pass.descriptor_layout_);
 
-  auto v = device.vk().allocateDescriptorSets(alloc_info);
-  descriptor_set_ = std::move(v[0]);
-}
+//   auto v = device.vk().allocateDescriptorSets(alloc_info);
+//   descriptor_set_ = std::move(v[0]);
+// }
 
-void CompositeRenderPass::DrawItem::update_descriptor_set(
-    Device& device,
-    CompositeRenderPass const& parent_pass,
-    vk::ImageView source) {
-  vk::DescriptorImageInfo image_info;
-  image_info //
-      .setSampler(*parent_pass.sampler_)
-      .setImageView(source)
-      .setImageLayout(vk::ImageLayout::eReadOnlyOptimal);
+// void CompositeRenderPass::DrawItem::update_descriptor_set(
+//     Device& device,
+//     CompositeRenderPass const& parent_pass,
+//     vk::ImageView source) {
+//   vk::DescriptorImageInfo image_info;
+//   image_info //
+//       .setSampler(*parent_pass.sampler_)
+//       .setImageView(source)
+//       .setImageLayout(vk::ImageLayout::eReadOnlyOptimal);
 
-  vk::WriteDescriptorSet write;
-  write //
-      .setDstSet(*descriptor_set_)
-      .setDstBinding(0)
-      .setDescriptorType(vk::DescriptorType::eCombinedImageSampler)
-      .setImageInfo(image_info);
+//   vk::WriteDescriptorSet write;
+//   write //
+//       .setDstSet(*descriptor_set_)
+//       .setDstBinding(0)
+//       .setDescriptorType(vk::DescriptorType::eCombinedImageSampler)
+//       .setImageInfo(image_info);
 
-  device.vk().updateDescriptorSets(write, {});
-}
-
-void CompositeRenderPass::pre_render(vk::raii::CommandBuffer& cmd) {
-}
-
-void CompositeRenderPass::render(vk::raii::CommandBuffer& cmd) {
-}
-
-void CompositeRenderPass::post_render(vk::raii::CommandBuffer& cmd) {
-}
+//   device.vk().updateDescriptorSets(write, {});
+// }
 
 } // namespace rndrx::vulkan

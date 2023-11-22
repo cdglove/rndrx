@@ -17,6 +17,7 @@
 #include <memory>
 #include <span>
 #include <vulkan/vulkan.hpp>
+#include <vulkan/vulkan_raii.hpp>
 #include "imgui.h"
 #include "imgui_impl_glfw.h"
 #include "imgui_impl_vulkan.h"
@@ -33,10 +34,7 @@ namespace rndrx::vulkan {
 
 ImGuiRenderPass::ImGuiRenderPass() = default;
 
-ImGuiRenderPass::ImGuiRenderPass(
-    Application const& app,
-    Device& device,
-    Swapchain const& swapchain)
+ImGuiRenderPass::ImGuiRenderPass(Device& device)
     : draw_data_(std::make_unique<ImDrawData>()) {
   IMGUI_CHECKVERSION();
   ImGui::CreateContext();
@@ -44,22 +42,6 @@ ImGuiRenderPass::ImGuiRenderPass(
   ImGui::GetStyle().Alpha = 0.9f;
 
   create_descriptor_pool(device);
-  create_render_pass(device);
-  create_image(device, app.window());
-
-  ImGui_ImplGlfw_InitForVulkan(app.window().glfw(), true);
-
-  ImGui_ImplVulkan_InitInfo init_info = {};
-  init_info.Instance = *app.vk_instance();
-  init_info.PhysicalDevice = *app.selected_device();
-  init_info.Device = *device.vk();
-  init_info.Queue = *device.graphics_queue();
-  init_info.CheckVkResultFn = &check_vk_result;
-  init_info.DescriptorPool = *descriptor_pool_;
-  init_info.MinImageCount = 2;
-  init_info.ImageCount = swapchain.images().size();
-
-  ImGui_ImplVulkan_Init(&init_info, *render_pass_);
 }
 
 ImGuiRenderPass::~ImGuiRenderPass() {
@@ -94,21 +76,33 @@ void ImGuiRenderPass::end_frame() {
 ImGuiRenderPass::ImGuiRenderPass(ImGuiRenderPass&&) = default;
 ImGuiRenderPass& ImGuiRenderPass::operator=(ImGuiRenderPass&&) = default;
 
+void ImGuiRenderPass::initialise_imgui(
+    Device& device,
+    Application const& app,
+    Swapchain const& swapchain,
+    vk::RenderPass render_pass) {
+  ImGui_ImplGlfw_InitForVulkan(app.window().glfw(), true);
+
+  ImGui_ImplVulkan_InitInfo init_info = {};
+  init_info.Instance = *app.vk_instance();
+  init_info.PhysicalDevice = *app.selected_device();
+  init_info.Device = *device.vk();
+  init_info.Queue = *device.graphics_queue();
+  init_info.CheckVkResultFn = &check_vk_result;
+  init_info.DescriptorPool = *descriptor_pool_;
+  init_info.MinImageCount = 2;
+  init_info.ImageCount = swapchain.images().size();
+
+  ImGui_ImplVulkan_Init(&init_info, render_pass);
+}
+
+void ImGuiRenderPass::pre_render(SubmissionContext& sc) {
+}
+
 void ImGuiRenderPass::render(SubmissionContext& sc) {
-  vk::CommandBuffer command_buffer = sc.command_buffer();
-
-  vk::ClearValue clear_value;
-  clear_value.color.setFloat32({0, 0, 0, 0});
-
-  vk::RenderPassBeginInfo begin_pass;
-  begin_pass //
-      .setRenderPass(*render_pass_)
-      .setFramebuffer(*framebuffer_)
-      .setRenderArea(sc.render_extents())
-      .setClearValues(clear_value);
-  command_buffer.beginRenderPass(begin_pass, vk::SubpassContents::eInline);
-  ImGui_ImplVulkan_RenderDrawData(draw_data_.get(), command_buffer);
-  command_buffer.endRenderPass();
+  ImGui_ImplVulkan_RenderDrawData(draw_data_.get(), sc.command_buffer());
+}
+void ImGuiRenderPass::post_render(SubmissionContext& sc) {
 }
 
 void ImGuiRenderPass::create_fonts_texture(SubmissionContext& sc) {
@@ -147,72 +141,64 @@ void ImGuiRenderPass::create_descriptor_pool(Device const& device) {
   descriptor_pool_ = device.vk().createDescriptorPool(create_info);
 }
 
-void ImGuiRenderPass::create_image(Device& device, Window const& window) {
-  image_ = device.allocator().create_image(
-      vk::ImageCreateInfo()
-          .setImageType(vk::ImageType::e2D)
-          .setFormat(vk::Format::eR8G8B8A8Unorm)
-          .setExtent(vk::Extent3D(window.width(), window.height(), 1))
-          .setArrayLayers(1)
-          .setMipLevels(1)
-          .setSamples(vk::SampleCountFlagBits::e1)
-          .setTiling(vk::ImageTiling::eOptimal)
-          .setUsage(
-              vk::ImageUsageFlagBits::eColorAttachment |
-              vk::ImageUsageFlagBits::eSampled));
+// void ImGuiRenderPass::create_image(Device& device, Window const& window) {
+//   image_ = device.allocator().create_image(
+//       vk::ImageCreateInfo()
+//           .setImageType(vk::ImageType::e2D)
+//           .setFormat(vk::Format::eR8G8B8A8Unorm)
+//           .setExtent(vk::Extent3D(window.width(), window.height(), 1))
+//           .setArrayLayers(1)
+//           .setMipLevels(1)
+//           .setSamples(vk::SampleCountFlagBits::e1)
+//           .setTiling(vk::ImageTiling::eOptimal)
+//           .setUsage(
+//               vk::ImageUsageFlagBits::eColorAttachment |
+//               vk::ImageUsageFlagBits::eSampled));
 
-  image_view_ = device.vk().createImageView(
-      vk::ImageViewCreateInfo()
-          .setImage(*image_.vk())
-          .setViewType(vk::ImageViewType::e2D)
-          .setFormat(vk::Format::eR8G8B8A8Unorm)
-          .setSubresourceRange(
-              vk::ImageSubresourceRange(vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1)));
+//   image_view_ = device.vk().createImageView(
+//       vk::ImageViewCreateInfo()
+//           .setImage(*image_.vk())
+//           .setViewType(vk::ImageViewType::e2D)
+//           .setFormat(vk::Format::eR8G8B8A8Unorm)
+//           .setSubresourceRange(
+//               vk::ImageSubresourceRange(vk::ImageAspectFlagBits::eColor, 0,
+//               1, 0, 1)));
 
-  framebuffer_ = device.vk().createFramebuffer( //
-      vk::FramebufferCreateInfo()
-          .setRenderPass(*render_pass_)
-          .setAttachments(*image_view_)
-          .setWidth(window.width())
-          .setHeight(window.height())
-          .setLayers(1));
-}
+//   framebuffer_ = device.vk().createFramebuffer( //
+//       vk::FramebufferCreateInfo()
+//           .setRenderPass(*render_pass_)
+//           .setAttachments(*image_view_)
+//           .setWidth(window.width())
+//           .setHeight(window.height())
+//           .setLayers(1));
+// }
 
-void ImGuiRenderPass::create_render_pass(Device const& device) {
-  vk::AttachmentDescription attachment_desc[1];
-  attachment_desc[0] //
-      .setFormat(vk::Format::eR8G8B8A8Unorm)
-      .setSamples(vk::SampleCountFlagBits::e1)
-      .setLoadOp(vk::AttachmentLoadOp::eClear)
-      .setStoreOp(vk::AttachmentStoreOp::eStore)
-      .setInitialLayout(vk::ImageLayout::eUndefined)
-      .setFinalLayout(vk::ImageLayout::eReadOnlyOptimal);
+// void ImGuiRenderPass::create_render_pass(Device const& device) {
+//   vk::AttachmentDescription attachment_desc[1];
+//   attachment_desc[0] //
+//       .setFormat(vk::Format::eR8G8B8A8Unorm)
+//       .setSamples(vk::SampleCountFlagBits::e1)
+//       .setLoadOp(vk::AttachmentLoadOp::eClear)
+//       .setStoreOp(vk::AttachmentStoreOp::eStore)
+//       .setInitialLayout(vk::ImageLayout::eUndefined)
+//       .setFinalLayout(vk::ImageLayout::eReadOnlyOptimal);
 
-  vk::AttachmentReference attachment_ref[1];
-  attachment_ref[0] //
-      .setAttachment(0)
-      .setLayout(vk::ImageLayout::eColorAttachmentOptimal);
+//   vk::AttachmentReference attachment_ref[1];
+//   attachment_ref[0] //
+//       .setAttachment(0)
+//       .setLayout(vk::ImageLayout::eColorAttachmentOptimal);
 
-  vk::SubpassDescription subpass;
-  subpass //
-      .setPipelineBindPoint(vk::PipelineBindPoint::eGraphics)
-      .setColorAttachments(attachment_ref);
+//   vk::SubpassDescription subpass;
+//   subpass //
+//       .setPipelineBindPoint(vk::PipelineBindPoint::eGraphics)
+//       .setColorAttachments(attachment_ref);
 
-  vk::RenderPassCreateInfo create_info;
-  create_info //
-      .setAttachments(attachment_desc)
-      .setSubpasses(subpass);
+//   vk::RenderPassCreateInfo create_info;
+//   create_info //
+//       .setAttachments(attachment_desc)
+//       .setSubpasses(subpass);
 
-  render_pass_ = device.vk().createRenderPass(create_info);
-}
-
-void ImGuiRenderPass::pre_render(vk::raii::CommandBuffer& cmd) {
-}
-
-void ImGuiRenderPass::render(vk::raii::CommandBuffer& cmd) {
-}
-
-void ImGuiRenderPass::post_render(vk::raii::CommandBuffer& cmd) {
-}
+//   render_pass_ = device.vk().createRenderPass(create_info);
+// }
 
 } // namespace rndrx::vulkan

@@ -13,14 +13,15 @@
 // limitations under the License.
 #ifndef RNDRX_VULKAN_FRAMEGRAPH_HPP_
 #define RNDRX_VULKAN_FRAMEGRAPH_HPP_
+#include "rndrx/vulkan/submission_context.hpp"
 #pragma once
 
 #include <type_traits>
 #include <unordered_set>
 #include <variant>
 #include <vulkan/vulkan.hpp>
-#include <vulkan/vulkan_raii.hpp>
 #include <vulkan/vulkan_handles.hpp>
+#include <vulkan/vulkan_raii.hpp>
 #include "glm/vec4.hpp"
 #include "rndrx/noncopyable.hpp"
 #include "rndrx/vulkan/vma/buffer.hpp"
@@ -38,12 +39,13 @@ class Device;
 class FrameGraphBuilder;
 class FrameGraphNode;
 class FrameGraph;
+class SubmissionContext;
 
 class FrameGraphRenderPass {
  public:
-  virtual void pre_render(vk::raii::CommandBuffer& cmd) = 0;
-  virtual void render(vk::raii::CommandBuffer& cmd) = 0;
-  virtual void post_render(vk::raii::CommandBuffer& cmd) = 0;
+  virtual void pre_render(SubmissionContext& sc) = 0;
+  virtual void render(SubmissionContext& sc) = 0;
+  virtual void post_render(SubmissionContext& sc) = 0;
 };
 
 class FrameGraphAttachment : noncopyable {
@@ -176,8 +178,10 @@ class FrameGraphNode : noncopyable {
 
 class FrameGraph : noncopyable {
  public:
+  FrameGraph() = default;
   FrameGraph(FrameGraphBuilder const& builder, FrameGraphDescription const& description);
-  void render(Device& device);
+  void render(SubmissionContext& sc);
+  FrameGraphNode* find_node(std::string_view name);
 
  private:
   void parse_description(
@@ -188,7 +192,6 @@ class FrameGraph : noncopyable {
   void allocate_graphics_resources(Device& device, FrameGraphDescription const& description);
 
   FrameGraphResource* find_resource(std::string_view name);
-  FrameGraphNode* find_node(std::string_view name);
 
   // Custom hashers and comparers so we can use the name
   // field in the object itself. Saves a bunch of conversions

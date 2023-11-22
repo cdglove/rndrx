@@ -50,6 +50,7 @@ set(SOURCES
     mesh.cpp
     model.cpp
     imgui_render_pass.cpp
+    renderer.cpp
     scene.cpp
     shader_cache.cpp
     submission_context.cpp

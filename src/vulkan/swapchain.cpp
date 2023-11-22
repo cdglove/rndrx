@@ -129,7 +129,7 @@ class SwapChainSupportDetails {
 PresentationQueue::~PresentationQueue() {
   std::vector<vk::Fence> wait_fences;
   transform_from_raii(image_ready_fences_, wait_fences);
-  auto wait_result = swapchain_.vk().getDevice().waitForFences(
+  auto wait_result = swapchain_->vk().getDevice().waitForFences(
       wait_fences,
       VK_TRUE,
       std::numeric_limits<std::uint64_t>::max());
@@ -142,7 +142,7 @@ PresentationQueue::~PresentationQueue() {
 
 PresentationContext PresentationQueue::acquire_context() {
   sync_idx_ = (sync_idx_ + 1) % image_ready_fences_.size();
-  auto wait_result = swapchain_.vk().getDevice().waitForFences(
+  auto wait_result = swapchain_->vk().getDevice().waitForFences(
       *image_ready_fences_[sync_idx_],
       VK_TRUE,
       std::numeric_limits<std::uint64_t>::max());
@@ -151,11 +151,11 @@ PresentationContext PresentationQueue::acquire_context() {
     throw_runtime_error("Failed to wait for fence.");
   }
 
-  swapchain_.vk().getDevice().resetFences(*image_ready_fences_[sync_idx_]);
+  swapchain_->vk().getDevice().resetFences(*image_ready_fences_[sync_idx_]);
 
-  auto result = swapchain_.vk().getDevice().acquireNextImage2KHR(
+  auto result = swapchain_->vk().getDevice().acquireNextImage2KHR(
       vk::AcquireNextImageInfoKHR()
-          .setSwapchain(*swapchain_.vk())
+          .setSwapchain(*swapchain_->vk())
           .setTimeout(std::numeric_limits<std::uint64_t>::max())
           .setFence(*image_ready_fences_[sync_idx_])
           .setDeviceMask(1));
@@ -166,7 +166,7 @@ PresentationContext PresentationQueue::acquire_context() {
   image_idx_ = result.value;
 
   return {
-      swapchain_.images()[image_idx_],
+      swapchain_->images()[image_idx_],
       *image_views_[image_idx_],
       *framebuffers_[image_idx_],
       image_idx_,
@@ -175,8 +175,8 @@ PresentationContext PresentationQueue::acquire_context() {
 
 void PresentationQueue::present(PresentationContext const& ctx) const {
   vk::PresentInfoKHR present_info;
-  present_info.setSwapchains(*swapchain_.vk()).setImageIndices(ctx.image_idx_);
-  auto result = present_queue_.presentKHR(present_info);
+  present_info.setSwapchains(*swapchain_->vk()).setImageIndices(ctx.image_idx_);
+  auto result = present_queue_->presentKHR(present_info);
   if(result != vk::Result::eSuccess) {
     throw_runtime_error("Failed to handle swapchain present failure");
   }
@@ -184,13 +184,13 @@ void PresentationQueue::present(PresentationContext const& ctx) const {
 
 void PresentationQueue::create_image_views(Device const& device) {
   image_views_ = //
-      swapchain_.images() |
+      swapchain_->images() |
       std::views::transform([this, &device](vk::Image img) {
         return device.vk().createImageView(
             vk::ImageViewCreateInfo()
                 .setImage(img)
                 .setViewType(vk::ImageViewType::e2D)
-                .setFormat(swapchain_.surface_format().format)
+                .setFormat(swapchain_->surface_format().format)
                 .setSubresourceRange(vk::ImageSubresourceRange(
                     vk::ImageAspectFlagBits::eColor,
                     0,
@@ -210,8 +210,8 @@ void PresentationQueue::create_framebuffers(Device const& device, vk::RenderPass
                 vk::FramebufferCreateInfo()
                     .setRenderPass(renderpass)
                     .setAttachments(*image_view)
-                    .setWidth(swapchain_.extent().width)
-                    .setHeight(swapchain_.extent().height)
+                    .setWidth(swapchain_->extent().width)
+                    .setHeight(swapchain_->extent().height)
                     .setLayers(1));
           }) |
       to_vector;
@@ -219,8 +219,8 @@ void PresentationQueue::create_framebuffers(Device const& device, vk::RenderPass
 
 void PresentationQueue::create_sync_objects(Device const& device) {
   image_ready_fences_ = //
-      swapchain_.images() |
-      std::ranges::views::transform([this, &device](vk::Image img) {
+      swapchain_->images() |
+      std::views::transform([this, &device](vk::Image img) {
         vk::FenceCreateInfo create_info(vk::FenceCreateFlagBits::eSignaled);
         return device.vk().createFence(create_info);
       }) |

@@ -34,6 +34,7 @@ namespace rndrx::vulkan {
 class Device;
 class Swapchain;
 class ShaderCache;
+class Renderer;
 
 class Application : noncopyable {
  public:
@@ -91,8 +92,8 @@ class Application : noncopyable {
   void render(SubmissionContext& ctx);
   void present(PresentationContext& ctx);
 
-  void on_pre_create_device_objects();
-  void on_device_objects_created();
+  void on_pre_create_renderer();
+  void on_renderer_created();
   void on_begin_initialise_device_resources(SubmissionContext&);
   void on_end_initialise_device_resources();
   void on_begin_frame();
@@ -103,8 +104,8 @@ class Application : noncopyable {
   void on_pre_present(SubmissionContext&, PresentationContext&);
   void on_post_present(PresentationContext&);
   void on_end_frame();
-  void on_pre_destroy_device_objects();
-  void on_device_objects_destroyed();
+  void on_pre_destroy_renderer();
+  void on_renderer_destroyed();
 
   enum class RunResult {
     None,
@@ -131,10 +132,7 @@ class Application : noncopyable {
   std::vector<vk::raii::PhysicalDevice> physical_devices_;
   RunStatus run_status_ = RunStatus::NotRunning;
   RunResult run_result_ = RunResult::None;
-  struct DeviceObjects;
-  std::unique_ptr<DeviceObjects> device_objects_;
-  struct RenderObjects;
-  std::unique_ptr<RenderObjects> render_objects_;
+  std::unique_ptr<Renderer> renderer_;
 };
 
 } // namespace rndrx::vulkan
